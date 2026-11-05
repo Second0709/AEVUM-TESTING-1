@@ -16,7 +16,7 @@ function BotBrain.decide(view, cards, cfg)
 				local c = cards[h.cardId]
 				local cost = h.cost or c.cost
 				if c.type == "Creature" and not c.evolveFrom and cost <= me.energy then
-					if not best or cost > bestCost then best = h bestCost = cost end
+					if not best or cost > bestCost then best = h; bestCost = cost end
 				end
 			end
 		end
