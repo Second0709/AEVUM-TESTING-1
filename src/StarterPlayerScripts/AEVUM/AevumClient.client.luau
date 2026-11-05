@@ -241,7 +241,27 @@ local function cardBtn(parent, size, text, bg, onClick, stroke, artId)
 			TextScaled = true, TextWrapped = true, ZIndex = 3 }, overlay)
 		new("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 6 }, tl)
 	end
-	if stroke then new("UIStroke", { Color = stroke, Thickness = 3, ZIndex = 4 }, b) end
+	if stroke then
+		if stroke == C.sel then
+			-- Glow pulsante: tres anillos concéntricos externos con opacidad decreciente
+			local function ring(pad, thickness, trans)
+				local r = new("Frame", { Size = UDim2.new(1, pad * 2, 1, pad * 2),
+					Position = UDim2.new(0, -pad, 0, -pad), BackgroundTransparency = 1,
+					BorderSizePixel = 0, ZIndex = 6 }, b)
+				new("UICorner", { CornerRadius = UDim.new(0, 6 + pad) }, r)
+				return new("UIStroke", { Color = stroke, Thickness = thickness, Transparency = trans }, r)
+			end
+			local s1 = ring(2, 2, 0.10)
+			local s2 = ring(3, 3, 0.55)
+			local s3 = ring(4, 4, 0.80)
+			local info = TweenInfo.new(0.9, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+			TweenService:Create(s1, info, { Transparency = 0.55 }):Play()
+			TweenService:Create(s2, info, { Transparency = 0.85 }):Play()
+			TweenService:Create(s3, info, { Transparency = 0.95 }):Play()
+		else
+			new("UIStroke", { Color = stroke, Thickness = 3, ZIndex = 4 }, b)
+		end
+	end
 	if onClick then b.Activated:Connect(onClick) end
 	return b
 end

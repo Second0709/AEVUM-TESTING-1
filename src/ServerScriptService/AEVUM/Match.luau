@@ -4,6 +4,7 @@
 -- (Damage o Destroy desde applyEffect), no solo en combate.
 -- ReduceAtk/ReduceMaxHp en bench: no-op (no hay pareja de intercambio).
 -- AreaDamage en bench: sí dispara (afecta a todas las criaturas enemigas en combate).
+-- Fix (v1.3.x): ReduceMaxHp clampea damage cuando dejaría a la criatura sin vida.
 
 local Match = {}
 Match.__index = Match
@@ -366,11 +367,22 @@ function Match:fireDeathTrigger(dead, opponent)
 			self:say(("%s muere sin objetivo para su efecto."):format(c.name))
 			return
 		end
-		local newMax = math.max(1, self:effectiveMaxHp(opponent) - trig.amount)
-		if newMax > 1 and opponent.damage < newMax then
+		-- (fix) no "revivir" a una pareja que ya murió en el intercambio
+		local oppMax = self:effectiveMaxHp(opponent)
+		if opponent.damage >= oppMax then
+			self:say(("%s (al morir) no puede reducir la VIDA MÁXIMA de %s: ya está sin vida."):format(
+				c.name, self.cards[opponent.cardId].name))
+			return
+		end
+		local newMax = math.max(1, oppMax - trig.amount)
+		if newMax < oppMax then
 			local m = { amount = -trig.amount, expiresAtTurn = trig.duration and (self.turn + trig.duration) or nil }
 			opponent.hpModifiers = opponent.hpModifiers or {}
 			table.insert(opponent.hpModifiers, m)
+			local finalMax = self:effectiveMaxHp(opponent)
+			if opponent.damage >= finalMax then
+				opponent.damage = math.max(0, finalMax - 1)
+			end
 			self:say(("%s (al morir) reduce la VIDA MÁXIMA de %s en %d%s."):format(
 				c.name, self.cards[opponent.cardId].name, trig.amount,
 				trig.duration and (" durante %d turno(s)"):format(trig.duration) or ""))
@@ -507,15 +519,19 @@ function Match:applyEffect(idx, card, t)
 						P.name, c.name, e.amount,
 						e.duration and (" durante %d turno(s)"):format(e.duration) or " (permanente)"))
 				elseif e.kind == "ReduceMaxHp" then
-					local newMax = math.max(1, self:effectiveMaxHp(inst) - e.amount)
-					if newMax <= 1 then
+					local currentMax = self:effectiveMaxHp(inst)
+					local newMax = math.max(1, currentMax - e.amount)
+					if newMax >= currentMax then
 						self:say(("%s no puede reducir más la VIDA MÁXIMA de %s: ya está en el mínimo."):format(P.name, c.name))
-					elseif inst.damage >= newMax then
-						self:say(("%s no puede reducir la VIDA MÁXIMA de %s: quedaría sin vida."):format(P.name, c.name))
 					else
 						local m = { amount = -e.amount, expiresAtTurn = e.duration and (self.turn + e.duration) or nil }
 						inst.hpModifiers = inst.hpModifiers or {}
 						table.insert(inst.hpModifiers, m)
+						-- (fix) ReduceMaxHp nunca mata: si dejaría la criatura sin vida, clampear damage.
+						local finalMax = self:effectiveMaxHp(inst)
+						if inst.damage >= finalMax then
+							inst.damage = math.max(0, finalMax - 1)
+						end
 						self:say(("%s reduce la VIDA MÁXIMA de %s en %d%s."):format(
 							P.name, c.name, e.amount,
 							e.duration and (" durante %d turno(s)"):format(e.duration) or " (permanente)"))
