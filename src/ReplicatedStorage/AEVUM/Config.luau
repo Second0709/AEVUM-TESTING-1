@@ -35,10 +35,10 @@ Config.Match = {
 }
 
 Config.Sounds = {
-	Select = "",
-	Deselect = "",
-	BlockKill = "",
-	Overkill = "",
+	Select = "rbxassetid://74677332039786",
+	Deselect = "rbxassetid://95511902174465",
+	BlockKill = "rbxassetid://94408979417525",
+	Overkill = "rbxassetid://95221069837224",
 	Volume = 0.6,
 }
 
