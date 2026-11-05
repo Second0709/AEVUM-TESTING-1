@@ -1,0 +1,45 @@
+--!nonstrict
+-- AEVUM · Reglas de partida (v1.0)
+
+local Config = {}
+
+Config.Match = {
+	AvatarHealth = 20,
+	DeckSize = 40,
+	MaxCopies = 2,
+	MaxLegendaryCopies = 1,
+	StartingHand = 5,
+	HandLimit = 8,
+	GuaranteeLowCostCreature = true,
+	LowCostMax = 2,
+
+	MaxEnergy = 6,
+	MaxReserve = 2,
+	MaxCostReduction = 1,
+	MinCost = 1,
+
+	BenchSlots = 5,
+	CombatSlots = 5,
+
+	FirstAttackTurn = 3,
+	FirstEvolveTurn = 3,
+	EvolutionsPerTurn = 1,
+	EvolveHeal = 2,
+	MaxEmergentBlockers = 2,
+
+	ActionTimeSeconds = 30,
+	MaxMatchSeconds = 1800,
+
+	AutoSkipEmptyWindows = true,
+	AutoPassWhenNoActions = true,
+}
+
+Config.Sounds = {
+	Select = "",
+	Deselect = "",
+	BlockKill = "",
+	Overkill = "",
+	Volume = 0.6,
+}
+
+return Config

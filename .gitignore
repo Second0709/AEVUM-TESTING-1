@@ -1,0 +1,8 @@
+﻿*.rbxl
+*.rbxlx
+*.rbxlx.lock
+sourcemap.json
+rojo.exe
+.rokit/
+aftman.toml
+rokit.toml

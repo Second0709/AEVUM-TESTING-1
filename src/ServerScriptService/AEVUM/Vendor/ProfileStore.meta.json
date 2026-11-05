@@ -1,0 +1,12 @@
+{
+  "properties": {
+    "Capabilities": {
+      "SecurityCapabilities": 17996771963439872
+    },
+    "Sandboxed": true,
+    "SerializedOverrides": {
+      "BinaryString": ""
+    },
+    "SourceAssetId": 109379033046155.0
+  }
+}

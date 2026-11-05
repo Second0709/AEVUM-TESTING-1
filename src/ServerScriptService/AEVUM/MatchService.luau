@@ -1,0 +1,225 @@
+--!nonstrict
+-- AEVUM · Servicio de partidas (v1.0).
+
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Shared = RS:WaitForChild("AEVUM")
+local Cards = require(Shared:WaitForChild("CardDatabase"))
+local Config = require(Shared:WaitForChild("Config"))
+local Match = require(script.Parent.Match)
+local BotBrain = require(script.Parent.BotBrain)
+local Validator = require(script.Parent.Validator)
+local RateLimiter = require(script.Parent.RateLimiter)
+local EventLog = require(script.Parent.EventLog)
+local KillSwitch = require(script.Parent.KillSwitch)
+local Inventory = require(script.Parent.InventoryService)
+local PlayerDataService = require(script.Parent.PlayerDataService)
+local ServerConfig = require(script.Parent.ServerConfig)
+
+local MatchService = {}
+local remotes
+local records = {}
+local playerRec = {}
+local queue = {}
+
+local function notice(player, text)
+	if player and player.Parent then remotes.Notice:FireClient(player, text) end
+end
+local function push(rec)
+	for i, seat in ipairs(rec.seats) do
+		if seat.player and seat.player.Parent then
+			remotes.State:FireClient(seat.player, rec.match:getView(i))
+		end
+	end
+end
+local function closeRec(rec)
+	if rec.closed then return end
+	rec.closed = true
+	records[rec] = nil
+	for _, seat in ipairs(rec.seats) do
+		if seat.player and playerRec[seat.player] == rec then playerRec[seat.player] = nil end
+	end
+end
+
+local afterChange
+
+local function scheduleBot(rec)
+	local m = rec.match
+	local w = m.waiting
+	if m.over or not w then return end
+	if not rec.seats[w.player].bot then return end
+	rec.botToken = (rec.botToken or 0) + 1
+	local token = rec.botToken
+	task.delay(ServerConfig.Bot.ThinkTime, function()
+		if rec.closed or rec.botToken ~= token or m.over or m.waiting ~= w then return end
+		local ok, act = pcall(BotBrain.decide, m:getView(w.player), Cards.Data, Config.Match)
+		local accepted = ok and m:submit(w.player, act)
+		if not accepted then m:timeout() end
+		afterChange(rec)
+	end)
+end
+
+afterChange = function(rec)
+	if rec.closed then return end
+	push(rec)
+	local m = rec.match
+	if m.over then
+		if not rec.endLogged then
+			rec.endLogged = true
+			EventLog.record("MatchEnded", 0, { id = rec.id, winner = m.winner or 0, reason = m.reason, turns = m.turn })
+			for i, seat in ipairs(rec.seats) do
+				if seat.player then
+					local won = (m.winner == i)
+					PlayerDataService.recordMatch(seat.player, won)
+				end
+			end
+			task.delay(ServerConfig.ResultLingerSeconds, function() closeRec(rec) end)
+		end
+		return
+	end
+	scheduleBot(rec)
+end
+
+local nextId = 0
+local function startMatch(a, b)
+	local seats, plist = {}, {}
+	local humans = { a, b or false }
+	for i = 1, 2 do
+		local pl = humans[i]
+		if pl then
+			local deck, err = Inventory.getValidatedDeck(pl)
+			if not deck then
+				notice(pl, "Mazo inválido: " .. tostring(err))
+				return false
+			end
+			seats[i] = { player = pl, bot = false }
+			plist[i] = { id = pl.UserId, name = pl.DisplayName, deck = deck }
+		else
+			seats[i] = { bot = true }
+			plist[i] = { id = 0, name = "Bot", deck = Inventory.buildTestDeck(), isBot = true }
+		end
+	end
+	nextId += 1
+	local rec = { id = nextId, seats = seats, seatOf = {} }
+	rec.match = Match.new({ cfg = Config.Match, cards = Cards.Data, players = plist })
+	for i, seat in ipairs(seats) do
+		if seat.player then
+			rec.seatOf[seat.player] = i
+			playerRec[seat.player] = rec
+		end
+	end
+	records[rec] = true
+	EventLog.record("MatchStarted", a.UserId, { id = rec.id, vsBot = b == nil, opponent = b and b.UserId or 0 })
+	rec.match:start()
+	afterChange(rec)
+	return true
+end
+
+local function removeFromQueue(player)
+	local i = table.find(queue, player)
+	if i then table.remove(queue, i) end
+end
+
+local function leave(player)
+	removeFromQueue(player)
+	local rec = playerRec[player]
+	if not rec then return end
+	local seat = rec.seatOf[player]
+	if not rec.match.over then
+		rec.match:forfeit(seat)
+		EventLog.record("Forfeit", player.UserId, { id = rec.id })
+		afterChange(rec)
+	end
+	playerRec[player] = nil
+	rec.seats[seat].player = nil
+	local anyHuman = false
+	for _, s in ipairs(rec.seats) do if s.player then anyHuman = true end end
+	if not anyHuman then closeRec(rec) end
+end
+
+local function onLobby(player, payload)
+	local ok, kick = RateLimiter.check(player)
+	if not ok then
+		if kick then player:Kick("Demasiadas peticiones.") end
+		return
+	end
+	local req = Validator.lobby(payload)
+	if not req then return end
+	if req.type == "Leave" then leave(player) return end
+	if playerRec[player] and not playerRec[player].match.over then return end
+	if playerRec[player] then leave(player) end
+	if not KillSwitch.isEnabled("Queue") or not KillSwitch.isEnabled("Matches") then
+		notice(player, "Las partidas están desactivadas temporalmente.")
+		return
+	end
+	if req.type == "PlayBot" then
+		if not ServerConfig.Bot.Enabled then return end
+		removeFromQueue(player)
+		startMatch(player, nil)
+	elseif req.type == "Queue" then
+		if table.find(queue, player) then return end
+		local rival = table.remove(queue, 1)
+		if rival and rival.Parent then startMatch(rival, player)
+		else
+			table.insert(queue, player)
+			notice(player, "Buscando rival…")
+		end
+	end
+end
+
+local function onAction(player, payload)
+	local ok, kick = RateLimiter.check(player)
+	if not ok then
+		if kick then
+			EventLog.record("KickedForSpam", player.UserId, {})
+			player:Kick("Demasiadas peticiones.")
+		end
+		return
+	end
+	if not KillSwitch.isEnabled("Matches") then return end
+	local clean, why = Validator.action(payload)
+	if not clean then
+		EventLog.record("InvalidPayload", player.UserId, { reason = why })
+		return
+	end
+	local rec = playerRec[player]
+	if not rec or rec.closed then return end
+	local seat = rec.seatOf[player]
+	local accepted, err = rec.match:submit(seat, clean)
+	if accepted then
+		EventLog.record("Action", player.UserId, { id = rec.id, type = clean.type, turn = rec.match.turn })
+		afterChange(rec)
+	else
+		EventLog.record("ActionRejected", player.UserId, { id = rec.id, type = clean.type, why = err })
+		notice(player, err or "Acción no válida")
+		remotes.State:FireClient(player, rec.match:getView(seat))
+	end
+end
+
+function MatchService.start(remotesFolder)
+	remotes = remotesFolder
+	remotes.Action.OnServerEvent:Connect(onAction)
+	remotes.Lobby.OnServerEvent:Connect(onLobby)
+	Players.PlayerRemoving:Connect(function(player)
+		leave(player)
+		RateLimiter.forget(player)
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			for rec in pairs(records) do
+				if not rec.closed then
+					if rec.match:isStale() then
+						rec.match:staleFinish()
+						afterChange(rec)
+					elseif rec.match:isExpired() then
+						rec.match:timeout()
+						afterChange(rec)
+					end
+				end
+			end
+		end
+	end)
+end
+
+return MatchService
