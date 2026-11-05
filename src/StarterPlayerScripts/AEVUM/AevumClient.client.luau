@@ -225,12 +225,23 @@ local function cardText(cid, inst, tag)
 	return t
 end
 
-local function cardBtn(parent, size, text, bg, onClick, stroke)
+local function cardBtn(parent, size, text, bg, onClick, stroke, artId)
+	local hasArt = type(artId) == "string" and artId ~= ""
 	local b = new("TextButton", { Size = size, BackgroundColor3 = bg, TextColor3 = C.text, Font = Enum.Font.Gotham,
-		TextScaled = true, TextWrapped = true, Text = text, AutoButtonColor = onClick ~= nil }, parent)
+		TextScaled = true, TextWrapped = true, Text = hasArt and "" or text, AutoButtonColor = onClick ~= nil }, parent)
 	new("UICorner", { CornerRadius = UDim.new(0, 6) }, b)
 	new("UITextSizeConstraint", { MaxTextSize = 14, MinTextSize = 7 }, b)
-	if stroke then new("UIStroke", { Color = stroke, Thickness = 3 }, b) end
+	if hasArt then
+		new("ImageLabel", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Image = artId,
+			ScaleType = Enum.ScaleType.Crop, ZIndex = 1 }, b)
+		local overlay = new("Frame", { Size = UDim2.new(1, 0, 0.42, 0), Position = UDim2.new(0, 0, 0.58, 0),
+			BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.35, BorderSizePixel = 0, ZIndex = 2 }, b)
+		local tl = new("TextLabel", { Size = UDim2.new(1, -6, 1, -4), Position = UDim2.new(0, 3, 0, 2),
+			BackgroundTransparency = 1, Text = text, TextColor3 = C.text, Font = Enum.Font.Gotham,
+			TextScaled = true, TextWrapped = true, ZIndex = 3 }, overlay)
+		new("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 6 }, tl)
+	end
+	if stroke then new("UIStroke", { Color = stroke, Thickness = 3, ZIndex = 4 }, b) end
 	if onClick then b.Activated:Connect(onClick) end
 	return b
 end
@@ -406,7 +417,7 @@ local function renderBoard()
 			local tgt = isTarget("Enemy", "Combat", s, inst.uid)
 			local stroke = tgt and C.tgt or (atkSet[inst.uid] and C.atk) or nil
 			if view.waiting and kind() == "Block" and mine() and blockPick and atkSet[inst.uid] then stroke = C.sel end
-			cardBtn(r2, SLOT, cardText(inst.cardId, inst, tag), C.card, function() onOppCombat(s, inst) end, stroke)
+			cardBtn(r2, SLOT, cardText(inst.cardId, inst, tag), C.card, function() onOppCombat(s, inst) end, stroke, Cards[inst.cardId].art)
 		else cardBtn(r2, SLOT, "—", C.empty) end
 	end
 	local r3 = boardRow(3, ROW_TITLES[3])
@@ -416,7 +427,7 @@ local function renderBoard()
 			local stroke
 			if isTarget("Self", "Combat", s, inst.uid) then stroke = C.tgt
 			elseif attackSel[inst.uid] or blockPick == inst.uid or (sel and sel.uid == inst.uid) then stroke = C.sel end
-			cardBtn(r3, SLOT, cardText(inst.cardId, inst, tag), C.card, function() onMyCombat(s, inst) end, stroke)
+						cardBtn(r3, SLOT, cardText(inst.cardId, inst, tag), C.card, function() onMyCombat(s, inst) end, stroke, Cards[inst.cardId].art)
 		else cardBtn(r3, SLOT, "—", C.empty) end
 	end
 	local r4 = boardRow(4, ROW_TITLES[4])
@@ -432,7 +443,7 @@ local function renderBoard()
 			elseif attackSel[inst.uid] or blockPick == inst.uid or (sel and sel.uid == inst.uid) then stroke = C.sel
 			elseif activatableAt(s) then stroke = Color3.fromRGB(120, 170, 255) end
 			cardBtn(r4, SLOT, cardText(inst.cardId, inst, tag), c.type == "Spell" and Color3.fromRGB(60, 70, 110) or C.card,
-				function() onMyBench(s, inst) end, stroke)
+				function() onMyBench(s, inst) end, stroke, c.art)
 		else cardBtn(r4, SLOT, "—", C.empty) end
 	end
 end
@@ -443,7 +454,7 @@ local function renderHand()
 		local stroke
 		if isTarget("Self", "Hand", idx, inst.uid) then stroke = C.tgt
 		elseif sel and sel.uid == inst.uid then stroke = C.sel end
-		cardBtn(handFrame, UDim2.new(0.105, 0, 1, 0), cardText(inst.cardId, inst), C.card, function() onHand(inst, idx) end, stroke)
+				cardBtn(handFrame, UDim2.new(0.105, 0, 1, 0), cardText(inst.cardId, inst), C.card, function() onHand(inst, idx) end, stroke, Cards[inst.cardId].art)
 	end
 end
 
