@@ -22,13 +22,34 @@ local records = {}
 local playerRec = {}
 local queue = {}
 
+-- ===== Pause (Opción D: clock inyectable, NO toca Match.luau) =====
+-- makePausableClock devuelve (nowFn, state). Mientras state.paused == true,
+-- nowFn() devuelve el acumulado y no avanza (aunque el wall-clock real sí).
+-- Esto evita que isExpired/isStale disparen al despausar.
+local function makePausableClock()
+	local state = { paused = false, accum = 0, lastReal = os.clock() }
+	local function now()
+		local real = os.clock()
+		if state.paused then
+			state.lastReal = real
+			return state.accum
+		end
+		state.accum += real - state.lastReal
+		state.lastReal = real
+		return state.accum
+	end
+	return now, state
+end
+
 local function notice(player, text)
 	if player and player.Parent then remotes.Notice:FireClient(player, text) end
 end
 local function push(rec)
 	for i, seat in ipairs(rec.seats) do
 		if seat.player and seat.player.Parent then
-			remotes.State:FireClient(seat.player, rec.match:getView(i))
+			local view = rec.match:getView(i)
+			view.paused = rec.paused or false
+			remotes.State:FireClient(seat.player, view)
 		end
 	end
 end
@@ -42,16 +63,18 @@ local function closeRec(rec)
 end
 
 local afterChange
+local scheduleBot
 
-local function scheduleBot(rec)
+scheduleBot = function(rec)
 	local m = rec.match
 	local w = m.waiting
 	if m.over or not w then return end
+	if rec.paused then return end
 	if not rec.seats[w.player].bot then return end
 	rec.botToken = (rec.botToken or 0) + 1
 	local token = rec.botToken
 	task.delay(ServerConfig.Bot.ThinkTime, function()
-		if rec.closed or rec.botToken ~= token or m.over or m.waiting ~= w then return end
+		if rec.closed or rec.paused or rec.botToken ~= token or m.over or m.waiting ~= w then return end
 		local ok, act = pcall(BotBrain.decide, m:getView(w.player), Cards.Data, Config.Match)
 		local accepted = ok and m:submit(w.player, act)
 		if not accepted then m:timeout() end
@@ -80,6 +103,15 @@ afterChange = function(rec)
 	scheduleBot(rec)
 end
 
+local function setPausedForRec(rec, v)
+	if rec.closed then return end
+	rec.paused = v
+	rec.clockState.paused = v
+	if not v then scheduleBot(rec) end
+	push(rec)
+	EventLog.record("PauseToggled", 0, { id = rec.id, paused = v })
+end
+
 local nextId = 0
 local function startMatch(a, b)
 	local seats, plist = {}, {}
@@ -101,7 +133,12 @@ local function startMatch(a, b)
 	end
 	nextId += 1
 	local rec = { id = nextId, seats = seats, seatOf = {} }
-	rec.match = Match.new({ cfg = Config.Match, cards = Cards.Data, players = plist })
+	-- Pause: cada partida tiene su propio clock pausable.
+	local clock, clockState = makePausableClock()
+	rec.clock = clock
+	rec.clockState = clockState
+	rec.paused = false
+	rec.match = Match.new({ cfg = Config.Match, cards = Cards.Data, players = plist, clock = clock })
 	for i, seat in ipairs(seats) do
 		if seat.player then
 			rec.seatOf[seat.player] = i
@@ -145,6 +182,17 @@ local function onLobby(player, payload)
 	end
 	local req = Validator.lobby(payload)
 	if not req then return end
+
+	-- Debug pause: solo si ServerConfig.DebugPause está activo.
+	-- Pausa/reanuda el match del jugador que lo solicita.
+	if req.type == "DebugPause" then
+		if not ServerConfig.DebugPause then return end
+		local rec = playerRec[player]
+		if not rec or rec.closed then return end
+		setPausedForRec(rec, not rec.paused)
+		return
+	end
+
 	if req.type == "Leave" then leave(player) return end
 	if playerRec[player] and not playerRec[player].match.over then return end
 	if playerRec[player] then leave(player) end
@@ -184,6 +232,10 @@ local function onAction(player, payload)
 	end
 	local rec = playerRec[player]
 	if not rec or rec.closed then return end
+	if rec.paused then
+		notice(player, "Partida pausada. Reanudá para seguir jugando.")
+		return
+	end
 	local seat = rec.seatOf[player]
 	local accepted, err = rec.match:submit(seat, clean)
 	if accepted then
@@ -208,7 +260,8 @@ function MatchService.start(remotesFolder)
 		while true do
 			task.wait(0.5)
 			for rec in pairs(records) do
-				if not rec.closed then
+				-- (pause) si la partida está pausada, no chequear timeouts.
+				if not rec.closed and not rec.paused then
 					if rec.match:isStale() then
 						rec.match:staleFinish()
 						afterChange(rec)

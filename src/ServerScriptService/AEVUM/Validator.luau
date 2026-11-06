@@ -80,7 +80,7 @@ function Validator.action(payload)
 	return clean
 end
 
-local LOBBY = { PlayBot = true, Queue = true, Leave = true }
+local LOBBY = { PlayBot = true, Queue = true, Leave = true, DebugPause = true }
 function Validator.lobby(payload)
 	if type(payload) ~= "table" or type(payload.type) ~= "string" or not LOBBY[payload.type] then
 		return nil, "petición de lobby inválida"

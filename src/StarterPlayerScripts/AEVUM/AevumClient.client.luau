@@ -122,6 +122,27 @@ new("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), Pa
 local toast = new("TextLabel", { Size = UDim2.new(0.4, 0, 0, 34), Position = UDim2.new(0.3, 0, 0.07, 0), BackgroundColor3 = Color3.fromRGB(120, 40, 40),
 	TextColor3 = C.text, Font = Enum.Font.GothamBold, TextScaled = true, Visible = false, ZIndex = 20, Text = "" }, gui)
 new("UICorner", { CornerRadius = UDim.new(0, 8) }, toast)
+-- Botón de debug pause (solo visible si ServerConfig.DebugPause == true)
+local pauseBtn = new("TextButton", {
+	Size = UDim2.new(0, 140, 0, 40),
+	Position = UDim2.new(1, -150, 0, 10),
+	BackgroundColor3 = Color3.fromRGB(200, 60, 60),
+	TextColor3 = C.text,
+	Font = Enum.Font.GothamBold,
+	TextScaled = true,
+	Text = "PAUSAR",
+	Visible = false,
+	ZIndex = 50,
+	AutoButtonColor = true,
+}, gui)
+new("UICorner", { CornerRadius = UDim.new(0, 8) }, pauseBtn)
+new("UITextSizeConstraint", { MaxTextSize = 18, MinTextSize = 8 }, pauseBtn)
+pauseBtn.Activated:Connect(function()
+	Remotes.Lobby:FireServer({ type = "DebugPause" })
+end)
+if Remotes:GetAttribute("DebugPause") == true then
+	pauseBtn.Visible = true
+end
 
 local shownTurn = nil
 local lastEventId = 0
@@ -656,7 +677,16 @@ end)
 
 RunService.Heartbeat:Connect(function()
 	if not view or not gameFrame.Visible then return end
+	-- Debug pause: reflejar estado en el botón (si está visible)
+	if pauseBtn.Visible then
+		pauseBtn.Text = view.paused and "REANUDAR" or "PAUSAR"
+		pauseBtn.BackgroundColor3 = view.paused and Color3.fromRGB(60, 160, 60) or Color3.fromRGB(200, 60, 60)
+	end
 	if view.over then topBar.Text = "Partida terminada" return end
+	if view.paused then
+		topBar.Text = ("PAUSADO · Turno %d · El reloj está detenido"):format(view.turn)
+		return
+	end
 	local w = view.waiting
 	local left = math.max(0, math.ceil(w.timeLeft - (os.clock() - recvAt)))
 	local who = (w.player == view.you) and "TU PRIORIDAD" or "PRIORIDAD DEL RIVAL"

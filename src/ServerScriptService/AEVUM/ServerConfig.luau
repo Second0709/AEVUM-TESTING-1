@@ -14,4 +14,10 @@ return {
 
 	PrintLogs = true,
 	ResultLingerSeconds = 600,
+
+	-- Debug: expone un botón "PAUSAR / REANUDAR" en el cliente.
+	-- Ponelo en true para testear. El pause congela el reloj de la partida
+	-- (isExpired/isStale no disparan), detiene al bot y bloquea acciones del
+	-- jugador. NO detiene el proceso del servidor ni el wall-clock real.
+	DebugPause = false,
 }

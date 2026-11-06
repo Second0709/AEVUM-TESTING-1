@@ -24,6 +24,7 @@ for _, name in ipairs({ "Action", "Lobby", "State", "Notice" }) do
 	r.Parent = remotes
 end
 remotes:SetAttribute("BotAvailable", ServerConfig.Bot.Enabled)
+remotes:SetAttribute("DebugPause", ServerConfig.DebugPause)  -- (nuevo)
 remotes.Parent = Shared
 
 KillSwitch.start()
