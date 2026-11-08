@@ -170,17 +170,21 @@ function Match:isStunned(inst)
 end
 
 function Match:triggerReflect(holder, damageDealt, sourceIdx)
-	if not holder or not holder.reflect then return end
+	-- (v1.3.1) Espejo Clarividente: DESVÍA la totalidad del daño directo (hechizos o
+	-- criaturas que ataquen) al Avatar del contrincante. El titular no recibe nada.
+	-- Devuelve true si el daño fue desviado.
+	if not holder or not holder.reflect then return false end
 	if self.turn >= holder.reflect.expiresAtTurn then
 		holder.reflect = nil
-		return
+		return false
 	end
-	if damageDealt <= 0 then return end
+	if damageDealt <= 0 then return false end
 	local source = self.players[sourceIdx]
-	if not source then return end
+	if not source then return false end
 	local actual = self:absorb(source, damageDealt)
 	source.hp -= actual
-	self:say(("¡Espejo Clarividente! %s recibe %d de daño directo en el Avatar."):format(source.name, actual))
+	self:say(("¡Espejo Clarividente! El daño es desviado: %s recibe %d de daño directo en el Avatar."):format(source.name, actual))
+	return true
 end
 
 function Match:drawInitial(P)
@@ -475,10 +479,11 @@ function Match:applyEffect(idx, card, t)
 		return
 	elseif t.zone == "Avatar" then
 		if e.kind == "Damage" then
-			local dmg = self:absorb(P, e.amount)
-			P.hp -= dmg
-			self:say(("%s recibe %d de daño en el Avatar%s."):format(P.name, dmg, dmg < e.amount and " (escudo)" or ""))
-			self:triggerReflect(P, dmg, idx)
+			if not self:triggerReflect(P, e.amount, idx) then
+				local dmg = self:absorb(P, e.amount)
+				P.hp -= dmg
+				self:say(("%s recibe %d de daño en el Avatar%s."):format(P.name, dmg, dmg < e.amount and " (escudo)" or ""))
+			end
 		elseif e.kind == "Heal" then
 			P.hp = math.min(self.cfg.AvatarHealth, P.hp + e.amount)
 			self:say(("%s cura %d a su Avatar."):format(P.name, e.amount))
@@ -497,9 +502,11 @@ function Match:applyEffect(idx, card, t)
 			if c.type == "Creature" then
 				if e.kind == "Damage" then
 					local fullLife = inst.damage == 0
-					local dmg = self:absorb(inst, e.amount)
-					inst.damage += dmg
-					self:triggerReflect(inst, dmg, idx)
+					local dmg = 0
+					if not self:triggerReflect(inst, e.amount, idx) then
+						dmg = self:absorb(inst, e.amount)
+						inst.damage += dmg
+					end
 					local effMax = self:effectiveMaxHp(inst)
 					if inst.damage >= effMax then
 						if fullLife and dmg > effMax and self:isBlocking(inst) then
@@ -764,10 +771,12 @@ function Match:resolveDamage()
 	end
 
 	for _, ex in ipairs(exchanges) do
-		ex.a.damage += ex.toA
-		ex.b.damage += ex.toB
-		self:triggerReflect(ex.a, ex.toA, dIdx)
-		self:triggerReflect(ex.b, ex.toB, self.attackerIdx)
+		if not self:triggerReflect(ex.a, self:effectiveAtk(ex.b), dIdx) then
+			ex.a.damage += ex.toA
+		end
+		if not self:triggerReflect(ex.b, self:effectiveAtk(ex.a), self.attackerIdx) then
+			ex.b.damage += ex.toB
+		end
 	end
 
 	self:checkAvatars()
@@ -821,10 +830,11 @@ function Match:resolveDamage()
 	if overkill then self:emit("Overkill") elseif blockKill then self:emit("BlockKill") end
 
 	if avatarDmg > 0 then
-		self:triggerReflect(D, avatarDmg, self.attackerIdx)
-		avatarDmg = self:absorb(D, avatarDmg)
-		D.hp -= avatarDmg
-		self:say(("%s recibe %d de daño en el Avatar."):format(D.name, avatarDmg))
+		if not self:triggerReflect(D, avatarDmg, self.attackerIdx) then
+			avatarDmg = self:absorb(D, avatarDmg)
+			D.hp -= avatarDmg
+			self:say(("%s recibe %d de daño en el Avatar."):format(D.name, avatarDmg))
+		end
 	end
 	self:checkAvatars()
 	if not self.over then self:endTurn() end

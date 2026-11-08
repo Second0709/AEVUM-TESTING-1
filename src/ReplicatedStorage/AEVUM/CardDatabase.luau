@@ -63,7 +63,7 @@ Cards.Data = {
 	ESPEJO = { id = "ESPEJO", name = "Espejo Clarividente", type = "Spell", cost = 5, speed = "Fast",
 		effect = { kind = "Reflect", duration = 1, targets = { "SelfCombat", "SelfAvatar" } },
 		legendary = false, art = "rbxassetid://125379581550088",
-		text = "Rápido. Este turno, la criatura o Avatar aliado devuelve al atacante la totalidad del daño recibido, como daño directo a su Avatar." },
+		text = "Rápido. Este turno, la criatura o Avatar aliado desvía al Avatar rival la totalidad del daño directo que recibiría de hechizos o criaturas que lo ataquen." },
 	LIANA = { id = "LIANA", name = "Liana Salvaje", type = "Spell", cost = 1, speed = "Fast",
 		effect = { kind = "Stun", duration = 1, targets = { "EnemyCombat" } },
 		legendary = false, art = "rbxassetid://125379581550088",
