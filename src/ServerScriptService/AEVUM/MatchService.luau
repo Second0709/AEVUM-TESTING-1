@@ -118,18 +118,46 @@ end
 
 local nextId = 0
 local function startMatch(a, b)
-	local seats, plist = {}, {}
 	local humans = { a, b or false }
+
+	-- (v1.3.0) Validar TODOS los mazos antes de tocar estado.
+	-- Si uno falla, notificar a ambos, re-encolar al válido y salir sin limbo.
+	local decks, invalid = {}, {}
 	for i = 1, 2 do
 		local pl = humans[i]
 		if pl then
 			local deck, err = Inventory.getValidatedDeck(pl)
-			if not deck then
-				notice(pl, "Mazo inválido: " .. tostring(err))
-				return false
+			if deck then decks[i] = deck else invalid[i] = err or "mazo inválido" end
+		end
+	end
+	local anyInvalid = false
+	for _ in pairs(invalid) do anyInvalid = true break end
+	if anyInvalid then
+		for i = 1, 2 do
+			local pl = humans[i]
+			if pl then
+				if invalid[i] then
+					notice(pl, "Mazo inválido: " .. tostring(invalid[i]))
+				else
+					-- Este jugador está OK, pero el otro falló.
+					local otherPl = humans[3 - i]
+					if otherPl then
+						notice(pl, "El rival no tiene un mazo válido. Volviendo a la cola…")
+						if not table.find(queue, pl) then table.insert(queue, pl) end
+					end
+					-- Si otherPl es false/nil (bot), no re-encolar (PlayBot).
+				end
 			end
+		end
+		return false
+	end
+
+	local seats, plist = {}, {}
+	for i = 1, 2 do
+		local pl = humans[i]
+		if pl then
 			seats[i] = { player = pl, bot = false }
-			plist[i] = { id = pl.UserId, name = pl.DisplayName, deck = deck }
+			plist[i] = { id = pl.UserId, name = pl.DisplayName, deck = decks[i] }
 		else
 			seats[i] = { bot = true }
 			plist[i] = { id = 0, name = "Bot", deck = Inventory.buildTestDeck(), isBot = true }
@@ -197,18 +225,6 @@ local function onLobby(player, payload)
 	local ok, kick = RateLimiter.check(player)
 	if not ok then
 		if kick then player:Kick("Demasiadas peticiones.") end
-		return
-	end
-
-	if req.type == "Leave" then leave(player) return end
-
-	-- Debug pause: solo si ServerConfig.DebugPause está activo.
-	-- Pausa/reanuda el match del jugador que lo solicita.
-	if req.type == "DebugPause" then
-		if not ServerConfig.DebugPause then return end
-		local rec = playerRec[player]
-		if not rec or rec.closed then return end
-		setPausedForRec(rec, not rec.paused)
 		return
 	end
 
