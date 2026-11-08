@@ -169,21 +169,23 @@ function Match:isStunned(inst)
 	return inst and inst.stunUntilTurn and self.turn < inst.stunUntilTurn
 end
 
-function Match:triggerReflect(holder, damageDealt, sourceIdx)
-	-- (v1.3.1) Espejo Clarividente: DESVÍA la totalidad del daño directo (hechizos o
-	-- criaturas que ataquen) al Avatar del contrincante. El titular no recibe nada.
+function Match:triggerReflect(dealer, ownerIdx, damageDealt)
+	-- (v1.3.2) Espejo Clarividente: se lanza sobre el ENEMIGO seleccionado (una
+	-- criatura atacante o el Avatar rival). El daño que ese enemigo cause (su
+	-- ataque al atacar o sus hechizos) se desvía directamente a su propio Avatar.
 	-- Devuelve true si el daño fue desviado.
-	if not holder or not holder.reflect then return false end
-	if self.turn >= holder.reflect.expiresAtTurn then
-		holder.reflect = nil
+	if not dealer or not dealer.reflect then return false end
+	if self.turn >= dealer.reflect.expiresAtTurn then
+		dealer.reflect = nil
 		return false
 	end
 	if damageDealt <= 0 then return false end
-	local source = self.players[sourceIdx]
-	if not source then return false end
-	local actual = self:absorb(source, damageDealt)
-	source.hp -= actual
-	self:say(("¡Espejo Clarividente! El daño es desviado: %s recibe %d de daño directo en el Avatar."):format(source.name, actual))
+	local owner = self.players[ownerIdx]
+	if not owner then return false end
+	local label = dealer.cardId and self.cards[dealer.cardId].name or dealer.name
+	local actual = self:absorb(owner, damageDealt)
+	owner.hp -= actual
+	self:say(("¡Espejo Clarividente! El daño de %s se desvía: %s recibe %d de daño directo en el Avatar."):format(label, owner.name, actual))
 	return true
 end
 
@@ -479,7 +481,8 @@ function Match:applyEffect(idx, card, t)
 		return
 	elseif t.zone == "Avatar" then
 		if e.kind == "Damage" then
-			if not self:triggerReflect(P, e.amount, idx) then
+			local caster = self.players[idx]
+			if not self:triggerReflect(caster, idx, e.amount) then
 				local dmg = self:absorb(P, e.amount)
 				P.hp -= dmg
 				self:say(("%s recibe %d de daño en el Avatar%s."):format(P.name, dmg, dmg < e.amount and " (escudo)" or ""))
@@ -492,7 +495,7 @@ function Match:applyEffect(idx, card, t)
 			self:say(("%s protege a su Avatar (previene hasta %d)."):format(P.name, e.amount))
 		elseif e.kind == "Reflect" then
 			P.reflect = { expiresAtTurn = self.turn + (e.duration or 1) }
-			self:say(("%s protege a su Avatar con un Espejo Clarividente."):format(P.name))
+			self:say(("%s marca el Avatar de %s con un Espejo Clarividente: su daño se volverá en su contra."):format(self.players[idx].name, P.name))
 		end
 	else
 		local zone = (t.zone == "Combat") and P.combat or P.bench
@@ -501,21 +504,21 @@ function Match:applyEffect(idx, card, t)
 			local c = self.cards[inst.cardId]
 			if c.type == "Creature" then
 				if e.kind == "Damage" then
-					local fullLife = inst.damage == 0
-					local dmg = 0
-					if not self:triggerReflect(inst, e.amount, idx) then
-						dmg = self:absorb(inst, e.amount)
+					local caster = self.players[idx]
+					if not self:triggerReflect(caster, idx, e.amount) then
+						local fullLife = inst.damage == 0
+						local dmg = self:absorb(inst, e.amount)
 						inst.damage += dmg
-					end
-					local effMax = self:effectiveMaxHp(inst)
-					if inst.damage >= effMax then
-						if fullLife and dmg > effMax and self:isBlocking(inst) then
-							self.attack.spellOverkill = true
-							self:say(("¡OVERKILL! %s aniquila a %s (%d de daño contra %d de vida)."):format(card.name, c.name, dmg, effMax))
+						local effMax = self:effectiveMaxHp(inst)
+						if inst.damage >= effMax then
+							if fullLife and dmg > effMax and self:isBlocking(inst) then
+								self.attack.spellOverkill = true
+								self:say(("¡OVERKILL! %s aniquila a %s (%d de daño contra %d de vida)."):format(card.name, c.name, dmg, effMax))
+							end
+							-- (v1.3.0) onDeath también por hechizo
+							self:tryDeathFromEffect(ownerIdx, t.zone, t.slot, idx)
+							self:destroy(ownerIdx, t.zone, t.slot)
 						end
-						-- (v1.3.0) onDeath también por hechizo
-						self:tryDeathFromEffect(ownerIdx, t.zone, t.slot, idx)
-						self:destroy(ownerIdx, t.zone, t.slot)
 					end
 				elseif e.kind == "Heal" then
 					inst.damage = math.max(0, inst.damage - e.amount)
@@ -569,7 +572,7 @@ function Match:applyEffect(idx, card, t)
 					self:say(("%s aturde a %s."):format(P.name, c.name))
 				elseif e.kind == "Reflect" then
 					inst.reflect = { expiresAtTurn = self.turn + (e.duration or 1) }
-					self:say(("%s protege a %s con un Espejo Clarividente."):format(P.name, c.name))
+					self:say(("%s marca a %s con un Espejo Clarividente: su daño se desviará al Avatar de %s."):format(self.players[idx].name, c.name, P.name))
 				end
 			end
 		end
@@ -765,18 +768,18 @@ function Match:resolveDamage()
 					}
 				end
 			else
-				avatarDmg += self:effectiveAtk(a)
+				if not self:triggerReflect(a, self.attackerIdx, self:effectiveAtk(a)) then
+					avatarDmg += self:effectiveAtk(a)
+				end
 			end
 		end
 	end
 
 	for _, ex in ipairs(exchanges) do
-		if not self:triggerReflect(ex.a, self:effectiveAtk(ex.b), dIdx) then
-			ex.a.damage += ex.toA
-		end
-		if not self:triggerReflect(ex.b, self:effectiveAtk(ex.a), self.attackerIdx) then
+		if not self:triggerReflect(ex.a, self.attackerIdx, self:effectiveAtk(ex.a)) then
 			ex.b.damage += ex.toB
 		end
+		ex.a.damage += ex.toA
 	end
 
 	self:checkAvatars()
@@ -830,11 +833,9 @@ function Match:resolveDamage()
 	if overkill then self:emit("Overkill") elseif blockKill then self:emit("BlockKill") end
 
 	if avatarDmg > 0 then
-		if not self:triggerReflect(D, avatarDmg, self.attackerIdx) then
-			avatarDmg = self:absorb(D, avatarDmg)
-			D.hp -= avatarDmg
-			self:say(("%s recibe %d de daño en el Avatar."):format(D.name, avatarDmg))
-		end
+		avatarDmg = self:absorb(D, avatarDmg)
+		D.hp -= avatarDmg
+		self:say(("%s recibe %d de daño en el Avatar."):format(D.name, avatarDmg))
 	end
 	self:checkAvatars()
 	if not self.over then self:endTurn() end

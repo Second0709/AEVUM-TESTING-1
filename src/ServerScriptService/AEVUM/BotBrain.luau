@@ -52,9 +52,14 @@ local function chooseFast(view, cards)
 							or (base.hp and ally.maxHp < base.hp)) then
 							return { type = "ActivateFast", slot = spell.slot, target = target }
 						end
-					elseif (wantedKind == "Shield" or wantedKind == "Reflect")
-						and isIncomingTarget(view, target) then
+					elseif wantedKind == "Shield" and isIncomingTarget(view, target) then
 						return { type = "ActivateFast", slot = spell.slot, target = target }
+					elseif wantedKind == "Reflect" then
+						-- (v1.3.2) El Espejo se lanza sobre el enemigo atacante seleccionado
+						if view.attack and view.waiting.kind == "FastWindow" and target.side == "Enemy"
+							and target.zone == "Combat" and isAttacker(view, view.opp.combat[target.slot]) then
+							return { type = "ActivateFast", slot = spell.slot, target = target }
+						end
 					end
 				end
 			end
