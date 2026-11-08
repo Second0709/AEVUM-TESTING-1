@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Servicio de partidas (v1.0).
+-- AEVUM · Servicio de partidas (v1.3.0).
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")

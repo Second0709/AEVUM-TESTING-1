@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Arranque del servidor (v1.0).
+-- AEVUM · Arranque del servidor (v1.3.0).
 
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -32,4 +32,4 @@ remotes.Parent = Shared
 
 KillSwitch.start()
 MatchService.start(remotes)
-print("[AEVUM] Servidor listo v1.0. TestMode =", ServerConfig.TestMode)
+print("[AEVUM] Servidor listo v1.3.0. TestMode =", ServerConfig.TestMode)

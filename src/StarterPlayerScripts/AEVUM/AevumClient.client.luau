@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Cliente (v1.1, sin KillRotation, con Stun/Reflect visuales)
+-- AEVUM · Cliente (v1.3.0, sin KillRotation, con Stun/Reflect visuales)
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
@@ -83,7 +83,7 @@ new("UIListLayout", { Padding = UDim.new(0, 10), HorizontalAlignment = Enum.Hori
 	SortOrder = Enum.SortOrder.LayoutOrder }, lobby)
 new("UIPadding", { PaddingTop = UDim.new(0, 16), PaddingLeft = UDim.new(0, 20), PaddingRight = UDim.new(0, 20) }, lobby)
 label(lobby, "AEVUM", { Size = UDim2.new(1, 0, 0, 50), Font = Enum.Font.GothamBlack, LayoutOrder = 1 })
-label(lobby, "v1.1 · 20 cartas", { Size = UDim2.new(1, 0, 0, 24), TextColor3 = C.dim, LayoutOrder = 2 })
+label(lobby, "v1.3.0 · 20 cartas", { Size = UDim2.new(1, 0, 0, 24), TextColor3 = C.dim, LayoutOrder = 2 })
 local lobbyStatus = label(lobby, "", { Size = UDim2.new(1, 0, 0, 28), TextColor3 = C.sel, LayoutOrder = 3 })
 local botBtn = button(lobby, "Jugar contra el Bot", C.btn, function()
 	Remotes.Lobby:FireServer({ type = "PlayBot" })

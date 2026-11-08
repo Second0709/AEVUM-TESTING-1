@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Interruptores de emergencia (v1.0).
+-- AEVUM · Interruptores de emergencia (v1.3.0).
 
 local DataStoreService = game:GetService("DataStoreService")
 local ServerConfig = require(script.Parent.ServerConfig)

@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Reglas de partida (v1.0)
+-- AEVUM · Reglas de partida (v1.3.0)
 
 local Config = {}
 

@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Servicio de datos de jugador (v1.0)
+-- AEVUM · Servicio de datos de jugador (v1.3.0)
 -- Requiere ServerScriptService.AEVUM.Vendor.ProfileStore
 
 local Players = game:GetService("Players")

@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Limitador de peticiones (v1.0).
+-- AEVUM · Limitador de peticiones (v1.3.0).
 
 local ServerConfig = require(script.Parent.ServerConfig)
 local RateLimiter = {}

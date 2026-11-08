@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Registro de eventos (v1.0).
+-- AEVUM · Registro de eventos (v1.3.0).
 
 local HttpService = game:GetService("HttpService")
 local ServerConfig = require(script.Parent.ServerConfig)

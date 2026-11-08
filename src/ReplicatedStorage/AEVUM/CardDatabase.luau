@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Base de datos de cartas (v1.1)
+-- AEVUM · Base de datos de cartas (v1.3.0)
 -- kinds: Damage | Heal | Shield | Destroy | ReduceCost | ReduceAtk | ReduceMaxHp | Dispel | Stun | Reflect
 -- onDeath: ReduceAtk | ReduceMaxHp | AreaDamage
 

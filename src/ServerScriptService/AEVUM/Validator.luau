@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Módulo de validación (v1.0).
+-- AEVUM · Módulo de validación (v1.3.0).
 
 local Validator = {}
 local MAX_INT = 1000000

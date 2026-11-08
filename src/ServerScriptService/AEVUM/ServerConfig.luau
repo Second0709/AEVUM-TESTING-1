@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Configuración SOLO DEL SERVIDOR (v1.0).
+-- AEVUM · Configuración SOLO DEL SERVIDOR (v1.3.0).
 
 return {
 	TestMode = false,

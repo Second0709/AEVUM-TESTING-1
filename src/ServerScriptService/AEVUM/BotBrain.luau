@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Bot sencillo (v1.1, evita atacar con criaturas aturdidas).
+-- AEVUM · Bot sencillo (v1.3.0, evita atacar con criaturas aturdidas).
 
 local BotBrain = {}
 

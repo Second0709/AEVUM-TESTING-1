@@ -1,10 +1,9 @@
 --!nonstrict
--- AEVUM · Motor de partida (v1.1.2, autoridad total del SERVIDOR)
--- Cambios v1.1.2: onDeath se dispara también cuando la criatura muere por hechizo
--- (Damage o Destroy desde applyEffect), no solo en combate.
--- ReduceAtk/ReduceMaxHp en bench: no-op (no hay pareja de intercambio).
--- AreaDamage en bench: sí dispara (afecta a todas las criaturas enemigas en combate).
--- Fix (v1.3.x): ReduceMaxHp clampea damage cuando dejaría a la criatura sin vida.
+-- AEVUM · Motor de partida (v1.3.0, autoridad total del SERVIDOR)
+-- v1.3.0: Groto stackea (auras de ReduceMaxHp sin límite por damage).
+-- Spell kills no disparan ReduceAtk/ReduceMaxHp (solo AreaDamage).
+-- ReduceMaxHp clampea damage cuando dejaría a la criatura sin vida.
+-- ReduceAtk/ReduceMaxHp en bench: no-op (no hay pareja). AreaDamage en bench: sí.
 
 local Match = {}
 Match.__index = Match
@@ -508,7 +507,7 @@ function Match:applyEffect(idx, card, t)
 							self.attack.spellOverkill = true
 							self:say(("¡OVERKILL! %s aniquila a %s (%d de daño contra %d de vida)."):format(card.name, c.name, dmg, effMax))
 						end
-						-- (v1.1.2) onDeath también por hechizo
+						-- (v1.3.0) onDeath también por hechizo
 						self:tryDeathFromEffect(ownerIdx, t.zone, t.slot, idx)
 						self:destroy(ownerIdx, t.zone, t.slot)
 					end
@@ -518,7 +517,7 @@ function Match:applyEffect(idx, card, t)
 					inst.shield = (inst.shield or 0) + e.amount
 					self:say(("%s protege a %s (previene hasta %d)."):format(P.name, c.name, e.amount))
 				elseif e.kind == "Destroy" then
-					-- (v1.1.2) onDeath también por Destroy
+					-- (v1.3.0) onDeath también por Destroy
 					self:tryDeathFromEffect(ownerIdx, t.zone, t.slot, idx)
 					self:destroy(ownerIdx, t.zone, t.slot)
 				elseif e.kind == "ReduceAtk" then

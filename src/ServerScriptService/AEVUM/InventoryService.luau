@@ -1,5 +1,5 @@
 --!nonstrict
--- AEVUM · Servicio central de inventario (v1.0).
+-- AEVUM · Servicio central de inventario (v1.3.0).
 
 local RS = game:GetService("ReplicatedStorage")
 local Shared = RS:WaitForChild("AEVUM")
