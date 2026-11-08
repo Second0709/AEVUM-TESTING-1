@@ -1,5 +1,5 @@
 local Board = {}
-local ROW_TITLES = { "COMBATE RIVAL", "BANCA RIVAL · OCULTA", "TU COMBATE", "TU BANCA" }
+local ROW_TITLES = { "BANCA RIVAL · OCULTA", "COMBATE RIVAL", "TU COMBATE", "TU BANCA" }
 local SLOT = UDim2.new(0.185, 0, 1, 0)
 
 function Board.create(ctx)
@@ -28,6 +28,16 @@ function Board.create(ctx)
 		for a, b in pairs(state.blockPairs) do blockerSet[b] = a end
 		for _, b in ipairs(view.attack and view.attack.blocks or {}) do blockerSet[b.blocker] = b.attacker end
 		local r1 = boardRow(1, ROW_TITLES[1])
+		for s, inst in ipairs(opp.bench) do
+			if inst then
+				local target = ctx.isTarget("Enemy", "Bench", s, inst.uid)
+				ctx.cardBtn(r1, SLOT, "Carta\nboca abajo", ctx.theme.faceDown,
+					function() ctx.onOppBench(s, inst) end, target and ctx.theme.tgt or nil)
+			else
+				ctx.cardBtn(r1, SLOT, "—", ctx.theme.empty)
+			end
+		end
+		local r2 = boardRow(2, ROW_TITLES[2])
 		for s, inst in ipairs(opp.combat) do
 			if inst then
 				local tag = atkSet[inst.uid] and "ATACA" or (blockerSet[inst.uid] and "BLOQUEA") or nil
@@ -36,18 +46,8 @@ function Board.create(ctx)
 				if view.waiting and view.waiting.kind == "Block" and view.waiting.player == view.you and state.blockPick and atkSet[inst.uid] then
 					stroke = ctx.theme.sel
 				end
-				ctx.cardBtn(r1, SLOT, ctx.cardText(inst.cardId, inst, tag), ctx.theme.card,
+				ctx.cardBtn(r2, SLOT, ctx.cardText(inst.cardId, inst, tag), ctx.theme.card,
 					function() ctx.onOppCombat(s, inst) end, stroke, ctx.cards[inst.cardId].art)
-			else
-				ctx.cardBtn(r1, SLOT, "—", ctx.theme.empty)
-			end
-		end
-		local r2 = boardRow(2, ROW_TITLES[2])
-		for s, inst in ipairs(opp.bench) do
-			if inst then
-				local target = ctx.isTarget("Enemy", "Bench", s, inst.uid)
-				ctx.cardBtn(r2, SLOT, "Carta\nboca abajo", ctx.theme.faceDown,
-					function() ctx.onOppBench(s, inst) end, target and ctx.theme.tgt or nil)
 			else
 				ctx.cardBtn(r2, SLOT, "—", ctx.theme.empty)
 			end
