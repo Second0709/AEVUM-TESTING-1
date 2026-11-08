@@ -81,9 +81,12 @@ function Validator.action(payload)
 end
 
 local LOBBY = { PlayBot = true, Queue = true, Leave = true, DebugPause = true }
-function Validator.lobby(payload)
+function Validator.lobby(payload, allowDebugPause)
 	if type(payload) ~= "table" or type(payload.type) ~= "string" or not LOBBY[payload.type] then
 		return nil, "petición de lobby inválida"
+	end
+	if payload.type == "DebugPause" and allowDebugPause ~= true then
+		return nil, "acción de depuración no disponible"
 	end
 	return { type = payload.type }
 end

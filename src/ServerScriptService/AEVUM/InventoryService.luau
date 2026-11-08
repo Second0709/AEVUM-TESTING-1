@@ -9,7 +9,7 @@ local ServerConfig = require(script.Parent.ServerConfig)
 
 local Inventory = {}
 
-function Inventory.buildTestDeck()
+function Inventory.buildStarterDeck()
 	local deck = {}
 	for _, id in ipairs(Cards.Order) do
 		local c = Cards.Data[id]
@@ -17,6 +17,19 @@ function Inventory.buildTestDeck()
 		for _ = 1, copies do deck[#deck + 1] = id end
 	end
 	return deck
+end
+
+function Inventory.buildStarterCollection()
+	local collection = {}
+	for _, id in ipairs(Cards.Order) do
+		local c = Cards.Data[id]
+		collection[id] = c.legendary and Config.Match.MaxLegendaryCopies or Config.Match.MaxCopies
+	end
+	return collection
+end
+
+function Inventory.buildTestDeck()
+	return Inventory.buildStarterDeck()
 end
 
 local testProvider = {

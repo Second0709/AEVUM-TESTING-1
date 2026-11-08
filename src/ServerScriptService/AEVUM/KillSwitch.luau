@@ -27,7 +27,10 @@ function KillSwitch.start()
 	if started then return end
 	started = true
 	local okStore, store = pcall(function() return DataStoreService:GetDataStore(ServerConfig.KillSwitchDataStore) end)
-	if not okStore then return end
+	if not okStore then
+		warn("[AEVUM] No se pudo obtener el DataStore de KillSwitch: " .. tostring(store))
+		return
+	end
 	task.spawn(function()
 		while true do poll(store) task.wait(ServerConfig.KillSwitchPollSeconds) end
 	end)

@@ -7,62 +7,70 @@ local RunService = game:GetService("RunService")
 local RS = game:GetService("ReplicatedStorage")
 local Shared = RS:WaitForChild("AEVUM")
 local Cards = require(Shared:WaitForChild("CardDatabase"))
-local Config = require(Shared:WaitForChild("Config"))
 local ServerConfig = require(script.Parent.ServerConfig)
 local EventLog = require(script.Parent.EventLog)
+local Inventory = require(script.Parent.InventoryService)
+local ProfileSchema = require(script.Parent.ProfileSchema)
 
 local PlayerDataService = {}
 
-local PROFILE_VERSION = 1
+local PROFILE_VERSION = 2
+
+local function buildStarterDeck()
+	return Inventory.buildStarterDeck()
+end
+
+local function buildStarterCollection()
+	return Inventory.buildStarterCollection()
+end
 
 local function newProfile()
 	return {
 		Version = PROFILE_VERSION,
-		Collection = {},
-		Deck = {},
+		Collection = buildStarterCollection(),
+		Deck = buildStarterDeck(),
 		Stats = { Wins = 0, Losses = 0, Matches = 0 },
 		LastLogin = 0,
 	}
 end
 
-local STARTER_COLLECTION = {}
-for _, id in ipairs(Cards.Order) do
-	local c = Cards.Data[id]
-	STARTER_COLLECTION[id] = c.legendary and 1 or 2
-end
-
-local function buildStarterDeck()
-	local deck = {}
-	for _, id in ipairs(Cards.Order) do
-		local c = Cards.Data[id]
-		local copies = c.legendary and 1 or 2
-		for _ = 1, copies do deck[#deck + 1] = id end
-	end
-	return deck
-end
-
 local profiles = {}
+local started = false
 
 local testProvider = {
-	getCollection = function(_player)
-		local col = {}
-		for _, id in ipairs(Cards.Order) do col[id] = 99 end
-		return col
+	getCollection = function(player)
+		local profile = profiles[player]
+		if profile then return table.clone(profile.Data.Collection) end
+		return Inventory.buildStarterCollection()
 	end,
-	getDeck = function(_player) return buildStarterDeck() end,
+	getDeck = function(player)
+		local profile = profiles[player]
+		return profile and table.clone(profile.Data.Deck) or buildStarterDeck()
+	end,
 }
 
 local ProfileStoreLib = nil
 local Store = nil
 
 local function onProfileLoaded(player, profile)
-	if not profile.Data.Version then profile.Data.Version = PROFILE_VERSION end
-	if profile.Data.NewAccount == nil then
-		profile.Data.NewAccount = false
-		profile.Data.Collection = table.clone(STARTER_COLLECTION)
-		profile.Data.Deck = buildStarterDeck()
-	end
+	ProfileSchema.migrate(profile.Data, PROFILE_VERSION, {
+		Collection = buildStarterCollection(),
+		Deck = buildStarterDeck(),
+	})
 	profile.Data.LastLogin = os.time()
+end
+
+local function startTestMode()
+	local function onPlayerAdded(player)
+		if profiles[player] then return end
+		local profile = { Data = newProfile() }
+		function profile:IsActive() return profiles[player] == self end
+		profiles[player] = profile
+	end
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	Players.PlayerRemoving:Connect(function(player) profiles[player] = nil end)
+	for _, player in ipairs(Players:GetPlayers()) do onPlayerAdded(player) end
 end
 
 local realProvider = {
@@ -79,9 +87,12 @@ local realProvider = {
 }
 
 function PlayerDataService.start()
+	if started then return false end
+	started = true
 	if ServerConfig.TestMode then
+		startTestMode()
 		print("[AEVUM] PlayerDataService: TestMode ON (sin persistencia)")
-		return
+		return true
 	end
 
 	local ok, mod = pcall(function()
@@ -91,7 +102,8 @@ function PlayerDataService.start()
 		warn("[AEVUM] ProfileStore no encontrado en ServerScriptService.AEVUM.Vendor.ProfileStore")
 		warn("[AEVUM] Fallback a TestMode.")
 		ServerConfig.TestMode = true
-		return
+		startTestMode()
+		return true
 	end
 	ProfileStoreLib = mod
 
@@ -146,8 +158,8 @@ function PlayerDataService.start()
 		end
 
 		profile:AddUserId(player.UserId)
-		profile:Reconcile()
 		onProfileLoaded(player, profile)
+		profile:Reconcile()
 		profile.OnSessionEnd:Connect(function()
 			profiles[player] = nil
 			if player.Parent then
@@ -184,27 +196,14 @@ function PlayerDataService.getProvider()
 end
 
 function PlayerDataService.isLoaded(player)
-	if ServerConfig.TestMode then return true end
 	return profiles[player] ~= nil
 end
 
 function PlayerDataService.setDeck(player, deck)
 	local p = profiles[player]
 	if not p or not p:IsActive() then return false, "perfil no cargado" end
-	if type(deck) ~= "table" then return false, "mazo inválido" end
-	if #deck ~= Config.Match.DeckSize then
-		return false, ("el mazo debe tener exactamente %d cartas"):format(Config.Match.DeckSize)
-	end
-	local owned = p.Data.Collection
-	local used = {}
-	for _, id in ipairs(deck) do
-		local c = Cards.Data[id]
-		if not c then return false, "carta inexistente: " .. tostring(id) end
-		used[id] = (used[id] or 0) + 1
-		local limit = c.legendary and Config.Match.MaxLegendaryCopies or Config.Match.MaxCopies
-		if used[id] > limit then return false, "demasiadas copias de " .. c.name end
-		if used[id] > (owned[id] or 0) then return false, "no posees suficientes copias de " .. c.name end
-	end
+	local ok, err = Inventory.validateDeck(player, deck)
+	if not ok then return false, err end
 	p.Data.Deck = table.clone(deck)
 	return true
 end

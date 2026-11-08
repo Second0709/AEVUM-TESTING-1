@@ -107,8 +107,6 @@ function Cards.validate(maxCost)
 			assert(c.speed == "Slow" or c.speed == "Fast", id .. ": speed inválido")
 			assert(c.effect and c.effect.targets and #c.effect.targets > 0, id .. ": hechizo sin effect.targets")
 			assert(KINDS[c.effect.kind], id .. ": effect.kind desconocido")
-			if c.effect.kind ~= "Destroy" and c.effect.kind ~= "Dispel" and c.effect.kind ~= "Reflect" and c.effect.kind ~= "Stun" then
-			end
 			if c.effect.duration ~= nil then
 				assert(type(c.effect.duration) == "number" and c.effect.duration >= 1, id .. ": effect.duration inválido")
 			end

@@ -18,6 +18,6 @@ function EventLog.record(kind, userId, data)
 	end
 end
 
-function EventLog.recent() return entries end
+function EventLog.recent() return table.clone(entries) end
 
 return EventLog

@@ -77,7 +77,6 @@ function Match:newInst(cardId, ownerIdx)
 	self.uidCounter += 1
 	return { uid = self.uidCounter, cardId = cardId, playedTurn = 0, damage = 0, ownerIdx = ownerIdx }
 end
-function Match:card(inst) return self.cards[inst.cardId] end
 function Match:say(text)
 	table.insert(self.logLines, { turn = self.turn, text = text })
 	if #self.logLines > 40 then table.remove(self.logLines, 1) end

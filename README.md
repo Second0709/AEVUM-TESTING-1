@@ -14,4 +14,12 @@ Next, open `AEVUM TESTING 1.rbxlx` in Roblox Studio and start the Rojo server:
 rojo serve
 ```
 
+## Unit tests
+
+With the Luau CLI installed, run the focused game-rule regressions from the project root:
+
+```bash
+luau tests/Match.spec.luau
+```
+
 For more help, check out [the Rojo documentation](https://rojo.space/docs).

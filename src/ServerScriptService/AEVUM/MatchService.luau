@@ -19,8 +19,10 @@ local ServerConfig = require(script.Parent.ServerConfig)
 
 
 local MatchService = {}
+local started = false
 local remotes
 local records = {}
+local recordsChanged = Instance.new("BindableEvent")
 local playerRec = {}
 local queue = {}
 -- Dev tools: no consumen rate limit (solo accesibles en Studio).
@@ -60,7 +62,10 @@ end
 local function closeRec(rec)
 	if rec.closed then return end
 	rec.closed = true
-	records[rec] = nil
+	if records[rec] then
+		records[rec] = nil
+		recordsChanged:Fire()
+	end
 	for _, seat in ipairs(rec.seats) do
 		if seat.player and playerRec[seat.player] == rec then playerRec[seat.player] = nil end
 	end
@@ -77,9 +82,19 @@ scheduleBot = function(rec)
 	if not rec.seats[w.player].bot then return end
 	rec.botToken = (rec.botToken or 0) + 1
 	local token = rec.botToken
-	task.delay(ServerConfig.Bot.ThinkTime, function()
+	local thinkTime = ServerConfig.Bot.ThinkTime
+	local botAction
+	if w.kind == "Response" or w.kind == "AttackResponse" or w.kind == "FastWindow" then
+		local ok, action = pcall(BotBrain.decide, m:getView(w.player), Cards.Data, Config.Match)
+		if ok then
+			botAction = action
+			if action.type == "Pass" then thinkTime = 0 end
+		end
+	end
+	task.delay(thinkTime, function()
 		if rec.closed or rec.paused or rec.botToken ~= token or m.over or m.waiting ~= w then return end
-		local ok, act = pcall(BotBrain.decide, m:getView(w.player), Cards.Data, Config.Match)
+		local ok, act = true, botAction
+		if not act then ok, act = pcall(BotBrain.decide, m:getView(w.player), Cards.Data, Config.Match) end
 		local accepted = ok and m:submit(w.player, act)
 		if not accepted then m:timeout() end
 		afterChange(rec)
@@ -91,6 +106,10 @@ afterChange = function(rec)
 	push(rec)
 	local m = rec.match
 	if m.over then
+		if records[rec] then
+			records[rec] = nil
+			recordsChanged:Fire()
+		end
 		if not rec.endLogged then
 			rec.endLogged = true
 			EventLog.record("MatchEnded", 0, { id = rec.id, winner = m.winner or 0, reason = m.reason, turns = m.turn })
@@ -178,6 +197,7 @@ local function startMatch(a, b)
 		end
 	end
 	records[rec] = true
+	recordsChanged:Fire()
 	EventLog.record("MatchStarted", a.UserId, { id = rec.id, vsBot = b == nil, opponent = b and b.UserId or 0 })
 	rec.match:start()
 	afterChange(rec)
@@ -207,7 +227,7 @@ local function leave(player)
 end
 
 local function onLobby(player, payload)
-	local req = Validator.lobby(payload)
+	local req = Validator.lobby(payload, ServerConfig.DebugPause and RunService:IsStudio())
 	if not req then return end
 
 	-- Dev tools (DebugPause): sin rate limit, solo en Studio.
@@ -284,6 +304,7 @@ local function onAction(player, payload)
 end
 
 function MatchService.start(remotesFolder)
+	if started then return false end
 	remotes = remotesFolder
 	remotes.Action.OnServerEvent:Connect(onAction)
 	remotes.Lobby.OnServerEvent:Connect(onLobby)
@@ -291,12 +312,16 @@ function MatchService.start(remotesFolder)
 		leave(player)
 		RateLimiter.forget(player)
 	end)
+	started = true
 	task.spawn(function()
 		while true do
+			if not next(records) then
+				recordsChanged.Event:Wait()
+			end
 			task.wait(0.5)
 			for rec in pairs(records) do
 				-- (pause) si la partida está pausada, no chequear timeouts.
-				if not rec.closed and not rec.paused then
+				if not rec.closed and not rec.paused and not rec.match.over then
 					if rec.match:isStale() then
 						rec.match:staleFinish()
 						afterChange(rec)
@@ -308,6 +333,7 @@ function MatchService.start(remotesFolder)
 			end
 		end
 	end)
+	return true
 end
 
 return MatchService
