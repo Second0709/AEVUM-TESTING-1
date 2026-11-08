@@ -16,7 +16,54 @@ function RightPanel.create(ctx)
 		local state = ctx.getState()
 		local view = state.view
 		ctx.clear(ctx.parent)
+		ctx.parent.CanvasPosition = Vector2.new(0, 0)
 		local order = 0
+		local function playerStatus(title, data, accent)
+			order += 1
+			local panel = ctx.new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = Color3.fromRGB(20, 27, 62),
+				BackgroundTransparency = 0.1, LayoutOrder = order }, ctx.parent)
+			ctx.new("UICorner", { CornerRadius = UDim.new(0, 10) }, panel)
+			ctx.new("UIStroke", { Color = accent, Thickness = 1.2 }, panel)
+			local reflect = data.reflect and " · REFLEJO" or ""
+			local shield = (data.shield or 0) > 0 and (" · Escudo " .. data.shield) or ""
+			local name = ctx.label(panel, title .. " · " .. data.name, {
+				Position = UDim2.new(0.06, 0, 0.08, 0), Size = UDim2.new(0.88, 0, 0, 20),
+				TextColor3 = accent, Font = Enum.Font.GothamBold,
+			})
+			name.TextXAlignment = Enum.TextXAlignment.Left
+			local health = ctx.label(panel, ("VIDA %d%s%s"):format(data.hp, shield, reflect), {
+				Position = UDim2.new(0.06, 0, 0.42, 0), Size = UDim2.new(0.88, 0, 0, 22),
+				TextColor3 = Color3.fromRGB(234, 240, 255),
+			})
+			health.TextXAlignment = Enum.TextXAlignment.Left
+
+			order += 1
+			local energy = ctx.new("Frame", { Size = UDim2.new(1, 0, 0, 74), BackgroundColor3 = Color3.fromRGB(20, 27, 62),
+				BackgroundTransparency = 0.1, LayoutOrder = order }, ctx.parent)
+			ctx.new("UICorner", { CornerRadius = UDim.new(0, 10) }, energy)
+			ctx.new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1 }, energy)
+			ctx.label(energy, ("ENERGÍA %d/%d · RESERVA %d"):format(data.energy, data.maxEnergy, data.reserve), {
+				Position = UDim2.new(0.05, 0, 0.04, 0), Size = UDim2.new(0.9, 0, 0, 22),
+				TextColor3 = Color3.fromRGB(143, 156, 196), Font = Enum.Font.GothamBold,
+			})
+			for i = 1, 8 do
+				local isReserve = i > 6 and i - 6 <= data.reserve
+				local filled = i <= data.energy or isReserve
+				local orb = ctx.new("Frame", {
+					Size = UDim2.new(0.14, 0, 0.24, 0), Position = UDim2.new(0.08 + ((i - 1) % 4) * 0.22, 0,
+						0.39 + math.floor((i - 1) / 4) * 0.3, 0),
+					BackgroundColor3 = isReserve and Color3.fromRGB(155, 107, 255) or Color3.fromRGB(255, 209, 102),
+					BackgroundTransparency = filled and 0 or 0.88, BorderSizePixel = 0,
+				}, energy)
+				ctx.new("UIAspectRatioConstraint", { AspectRatio = 1 }, orb)
+				ctx.new("UICorner", { CornerRadius = UDim.new(1, 0) }, orb)
+				if isReserve then ctx.new("UIStroke", { Color = Color3.fromRGB(155, 107, 255), Thickness = 1 }, orb) end
+			end
+		end
+		playerStatus("RIVAL", view.opp, Color3.fromRGB(255, 107, 214))
+		playerStatus("TÚ", view.me, Color3.fromRGB(77, 225, 255))
+
+		order += 1
 		local function add(text, color, fn)
 			order += 1
 			local button = ctx.button(ctx.parent, text, color, fn)
@@ -41,9 +88,11 @@ function RightPanel.create(ctx)
 			hint = "Tu prioridad: juega una carta, activa un hechizo lento o pasa."
 		end
 		if state.targetMode then hint = "Elige un objetivo resaltado en verde (o toca otra cosa para cancelar)." end
-		local header = ctx.label(ctx.parent, hint, { Size = UDim2.new(1, 0, 0, 70), LayoutOrder = 0, TextColor3 = ctx.theme.sel })
+		local header = ctx.label(ctx.parent, hint, { Size = UDim2.new(1, 0, 0, 70), LayoutOrder = order,
+			TextColor3 = Color3.fromRGB(77, 225, 255) })
 		header.TextScaled = false
 		header.TextSize = 14
+		order += 1
 
 		if isMine and not state.targetMode then
 			local handInst, handCard

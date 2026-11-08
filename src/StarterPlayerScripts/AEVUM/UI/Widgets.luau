@@ -11,7 +11,10 @@ end
 
 function Widgets.clear(frame)
 	for _, ch in ipairs(frame:GetChildren()) do
-		if not ch:IsA("UIListLayout") and not ch:IsA("UIPadding") then ch:Destroy() end
+		if not ch:IsA("UIListLayout") and not ch:IsA("UIPadding") and not ch:IsA("UICorner")
+			and not ch:IsA("UIStroke") and not ch:IsA("UIGradient") then
+			ch:Destroy()
+		end
 	end
 end
 

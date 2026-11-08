@@ -32,26 +32,49 @@ local gui = new("ScreenGui", { Name = "AevumGui", ResetOnSpawn = false, IgnoreGu
 local lobby, lobbyStatus = LobbyUI.create(gui, C, Widgets, Remotes)
 
 local gameFrame = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, Visible = false }, gui)
+new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(30, 16, 66), C.bg), Rotation = 90 }, gameFrame)
+local stars = Random.new(7)
+for _ = 1, 70 do
+	local size = stars:NextInteger(1, 3)
+	new("Frame", { Size = UDim2.fromOffset(size, size), Position = UDim2.fromScale(stars:NextNumber(), stars:NextNumber()),
+		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, gameFrame)
+end
 
-local topBar = new("TextLabel", { Size = UDim2.new(1, 0, 0.06, 0), BackgroundColor3 = C.panel, TextColor3 = C.text,
-	Font = Enum.Font.GothamBold, TextScaled = true, Text = "" }, gameFrame)
+local topBar = new("TextLabel", { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(1, 0, 0.065, 0),
+	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12, TextColor3 = Color3.fromRGB(77, 225, 255),
+	Font = Enum.Font.GothamBold, TextScaled = true, Text = "", ZIndex = 2 }, gameFrame)
 new("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 8 }, topBar)
+new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1 }, topBar)
 
-local left = new("Frame", { Position = UDim2.new(0, 0, 0.06, 0), Size = UDim2.new(0.2, 0, 0.94, 0), BackgroundColor3 = C.panel }, gameFrame)
-new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, left)
-new("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }, left)
+local left = new("Frame", { Position = UDim2.new(0.012, 0, 0.08, 0), Size = UDim2.new(0.13, 0, 0.91, 0),
+	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12 }, gameFrame)
+new("UICorner", { CornerRadius = UDim.new(0, 14) }, left)
+new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1.5 }, left)
+new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, left)
+new("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6),
+	PaddingBottom = UDim.new(0, 6) }, left)
 
-local board = new("Frame", { Position = UDim2.new(0.2, 0, 0.06, 0), Size = UDim2.new(0.6, 0, 0.62, 0), BackgroundTransparency = 1 }, gameFrame)
-new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, board)
+local board = new("Frame", { Position = UDim2.new(0.15, 0, 0.08, 0), Size = UDim2.new(0.68, 0, 0.68, 0),
+	BackgroundTransparency = 1 }, gameFrame)
+new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, board)
 
-local handFrame = new("Frame", { Position = UDim2.new(0.2, 0, 0.68, 0), Size = UDim2.new(0.6, 0, 0.32, 0), BackgroundColor3 = C.panel }, gameFrame)
+local handFrame = new("Frame", { Position = UDim2.new(0.15, 0, 0.78, 0), Size = UDim2.new(0.68, 0, 0.21, 0),
+	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12 }, gameFrame)
+new("UICorner", { CornerRadius = UDim.new(0, 14) }, handFrame)
+new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1.5 }, handFrame)
 new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 4),
 	VerticalAlignment = Enum.VerticalAlignment.Center }, handFrame)
-new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4) }, handFrame)
+new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5) }, handFrame)
 
-local right = new("Frame", { Position = UDim2.new(0.8, 0, 0.06, 0), Size = UDim2.new(0.2, 0, 0.94, 0), BackgroundColor3 = C.panel }, gameFrame)
+local right = new("ScrollingFrame", { Position = UDim2.new(0.835, 0, 0.08, 0), Size = UDim2.new(0.153, 0, 0.91, 0),
+	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12, BorderSizePixel = 0,
+	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 4,
+	ScrollBarImageColor3 = Color3.fromRGB(77, 225, 255) }, gameFrame)
+new("UICorner", { CornerRadius = UDim.new(0, 14) }, right)
+new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1.5 }, right)
 new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, right)
-new("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }, right)
+new("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7),
+	PaddingBottom = UDim.new(0, 8) }, right)
 
 local toast = new("TextLabel", { Size = UDim2.new(0.4, 0, 0, 34), Position = UDim2.new(0.3, 0, 0.07, 0), BackgroundColor3 = Color3.fromRGB(120, 40, 40),
 	TextColor3 = C.text, Font = Enum.Font.GothamBold, TextScaled = true, Visible = false, ZIndex = 20, Text = "" }, gui)
@@ -312,13 +335,13 @@ local renderHand = HandUI.create({
 })
 
 local renderLeft = LeftPanelUI.create({
-	parent = left, new = new, label = label, theme = C, cardBtn = cardBtn,
+	parent = left, new = new, clear = clear, label = label, theme = C, cardBtn = cardBtn,
 	isTarget = isTarget, tryTarget = tryTarget, render = function() render() end,
 	getView = function() return view end,
 })
 
 local renderRight = RightPanelUI.create({
-	parent = right, clear = clear, button = button, label = label, theme = C, cards = Cards,
+	parent = right, new = new, clear = clear, button = button, label = label, theme = C, cards = Cards,
 	activatableAt = activatableAt, send = send, startSpell = startSpell, startEvolve = startEvolve,
 	getState = getPanelState,
 })
