@@ -343,6 +343,7 @@ local renderLeft = LeftPanelUI.create({
 local renderRight = RightPanelUI.create({
 	parent = right, new = new, clear = clear, button = button, label = label, theme = C, cards = Cards,
 	activatableAt = activatableAt, send = send, startSpell = startSpell, startEvolve = startEvolve,
+	tryTarget = tryTarget,
 	getState = getPanelState,
 })
 

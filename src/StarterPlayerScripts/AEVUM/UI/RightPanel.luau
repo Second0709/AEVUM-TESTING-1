@@ -18,7 +18,7 @@ function RightPanel.create(ctx)
 		ctx.clear(ctx.parent)
 		ctx.parent.CanvasPosition = Vector2.new(0, 0)
 		local order = 0
-		local function playerStatus(title, data, accent)
+		local function playerStatus(title, data, accent, side)
 			order += 1
 			local panel = ctx.new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundColor3 = Color3.fromRGB(20, 27, 62),
 				BackgroundTransparency = 0.1, LayoutOrder = order }, ctx.parent)
@@ -59,9 +59,24 @@ function RightPanel.create(ctx)
 				ctx.new("UICorner", { CornerRadius = UDim.new(1, 0) }, orb)
 				if isReserve then ctx.new("UIStroke", { Color = Color3.fromRGB(155, 107, 255), Thickness = 1 }, orb) end
 			end
+			-- Avatar como objetivo de hechizo: resaltar y hacerlo clickeable
+			local tm = state.targetMode
+			if tm and tm.kind == "spell" and side then
+				for _, t in ipairs(tm.targets) do
+					if t.side == side and t.zone == "Avatar" then
+						local avBtn = ctx.new("TextButton", { Size = UDim2.new(1, 0, 1, 0),
+							BackgroundTransparency = 1, Text = "", ZIndex = 5 }, panel)
+						ctx.new("UIStroke", { Color = ctx.theme.tgt, Thickness = 3 }, avBtn)
+						avBtn.Activated:Connect(function()
+							ctx.tryTarget(side, "Avatar", 0, nil)
+						end)
+						break
+					end
+				end
+			end
 		end
-		playerStatus("RIVAL", view.opp, Color3.fromRGB(255, 107, 214))
-		playerStatus("TÚ", view.me, Color3.fromRGB(77, 225, 255))
+		playerStatus("RIVAL", view.opp, Color3.fromRGB(255, 107, 214), "Enemy")
+		playerStatus("TÚ", view.me, Color3.fromRGB(77, 225, 255), "Self")
 
 		order += 1
 		local function add(text, color, fn)
