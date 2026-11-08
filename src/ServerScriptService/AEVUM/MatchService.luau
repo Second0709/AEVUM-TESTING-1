@@ -3,6 +3,7 @@
 
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Shared = RS:WaitForChild("AEVUM")
 local Cards = require(Shared:WaitForChild("CardDatabase"))
 local Config = require(Shared:WaitForChild("Config"))
@@ -16,11 +17,14 @@ local Inventory = require(script.Parent.InventoryService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 local ServerConfig = require(script.Parent.ServerConfig)
 
+
 local MatchService = {}
 local remotes
 local records = {}
 local playerRec = {}
 local queue = {}
+-- Dev tools: no consumen rate limit (solo accesibles en Studio).
+local DEV_ACTIONS = { DebugPause = true }
 
 -- ===== Pause (Opción D: clock inyectable, NO toca Match.luau) =====
 -- makePausableClock devuelve (nowFn, state). Mientras state.paused == true,
@@ -175,13 +179,28 @@ local function leave(player)
 end
 
 local function onLobby(player, payload)
+	local req = Validator.lobby(payload)
+	if not req then return end
+
+	-- Dev tools (DebugPause): sin rate limit, solo en Studio.
+	if DEV_ACTIONS[req.type] then
+		if req.type == "DebugPause" then
+			if not ServerConfig.DebugPause then return end
+			if not RunService:IsStudio() then return end
+			local rec = playerRec[player]
+			if not rec or rec.closed then return end
+			setPausedForRec(rec, not rec.paused)
+		end
+		return
+	end
+
 	local ok, kick = RateLimiter.check(player)
 	if not ok then
 		if kick then player:Kick("Demasiadas peticiones.") end
 		return
 	end
-	local req = Validator.lobby(payload)
-	if not req then return end
+
+	if req.type == "Leave" then leave(player) return end
 
 	-- Debug pause: solo si ServerConfig.DebugPause está activo.
 	-- Pausa/reanuda el match del jugador que lo solicita.

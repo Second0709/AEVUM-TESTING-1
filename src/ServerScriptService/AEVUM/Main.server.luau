@@ -2,6 +2,7 @@
 -- AEVUM · Arranque del servidor (v1.0).
 
 local RS = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Shared = RS:WaitForChild("AEVUM")
 local Config = require(Shared:WaitForChild("Config"))
 local Cards = require(Shared:WaitForChild("CardDatabase"))
@@ -24,7 +25,9 @@ for _, name in ipairs({ "Action", "Lobby", "State", "Notice" }) do
 	r.Parent = remotes
 end
 remotes:SetAttribute("BotAvailable", ServerConfig.Bot.Enabled)
-remotes:SetAttribute("DebugPause", ServerConfig.DebugPause)  -- (nuevo)
+-- (v1.3.0) DebugPause solo efectivo en Studio. Aunque el flag esté en true
+-- en producción, el atributo viaja como false y el botón no se crea.
+remotes:SetAttribute("DebugPause", ServerConfig.DebugPause and RunService:IsStudio())
 remotes.Parent = Shared
 
 KillSwitch.start()

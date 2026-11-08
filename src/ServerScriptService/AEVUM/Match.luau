@@ -127,13 +127,32 @@ function Match:effectiveMaxHp(inst)
 					local oc = self.cards[oppInst.cardId]
 					if oc.aura and oc.aura.kind == "ReduceMaxHp" then
 						local candidate = hp - oc.aura.amount
-						if candidate >= 1 and inst.damage < candidate then hp = candidate end
+						if candidate >= 1 then hp = candidate end  -- (v1.3.0) stackea auras
 					end
 				end
 			end
 		end
 	end
 	return math.max(1, hp)
+end
+
+-- (v1.3.0) Clampea damage en Combat para respetar maxHp efectivo (auras que stackean).
+-- Llamar después de mover criaturas a Combat o de re-evaluar auras.
+function Match:clampDamageIn(P)
+	for _, inst in ipairs(P.combat) do
+		if inst then
+			local maxHp = self:effectiveMaxHp(inst)
+			if inst.damage >= maxHp then
+				inst.damage = math.max(0, maxHp - 1)
+			end
+		end
+	end
+end
+
+function Match:clampAllDamage()
+	for _, P in ipairs(self.players) do
+		self:clampDamageIn(P)
+	end
 end
 
 function Match:effectiveCost(inst)
@@ -404,9 +423,9 @@ function Match:fireDeathTrigger(dead, opponent)
 	end
 end
 
--- (v1.1.2) Dispara onDeath cuando una criatura muere por hechizo (Damage/Destroy).
--- Solo dispara si la criatura está en combate O si el trigger es AreaDamage.
--- Para ReduceAtk/ReduceMaxHp en bench no hay pareja de intercambio: no-op.
+-- (v1.3.0) Un hechizo no es una entidad: ReduceAtk/ReduceMaxHp requieren par
+-- del intercambio y no lo tienen → no-op con say. AreaDamage no necesita par →
+-- sí se dispara (castiga al que destruyó, sea criatura o hechizo).
 function Match:tryDeathFromEffect(ownerIdx, zoneName, slot, sourceIdx)
 	local P = self.players[ownerIdx]
 	local zone = (zoneName == "Combat") and P.combat or P.bench
@@ -414,21 +433,10 @@ function Match:tryDeathFromEffect(ownerIdx, zoneName, slot, sourceIdx)
 	if not inst then return end
 	local c = self.cards[inst.cardId]
 	if not c.onDeath then return end
-	-- opponent: solo tiene sentido en combate (pareja del intercambio).
-	local opponent = nil
-	if zoneName == "Combat" then
-		local opp = self.players[other(ownerIdx)]
-		-- buscar cualquier criatura enemiga en combate como pareja "virtual"
-		-- (el hechizo no tiene pareja específica; usamos la primera viva).
-		if opp then
-			for _, oi in ipairs(opp.combat) do
-				if oi then opponent = oi break end
-			end
-		end
-	end
-	self:fireDeathTrigger(inst, opponent)
-	-- Detectar muertes secundarias por AreaDamage (sin recursión).
+
 	if c.onDeath.kind == "AreaDamage" then
+		self:fireDeathTrigger(inst, nil)
+		-- Detectar muertes secundarias por AreaDamage (sin recursión).
 		local enemy = self.players[other(ownerIdx)]
 		if enemy then
 			for eslot, einst in ipairs(enemy.combat) do
@@ -438,6 +446,8 @@ function Match:tryDeathFromEffect(ownerIdx, zoneName, slot, sourceIdx)
 				end
 			end
 		end
+	else
+		self:say(("%s muere por un hechizo: su efecto de muerte no se aplica."):format(c.name))
 	end
 end
 
@@ -932,6 +942,7 @@ H.AttackDeclare = {
 		self.attack = { attackers = uids, blocks = {}, attackerSet = {} }
 		for _, u in ipairs(uids) do self.attack.attackerSet[u] = true end
 		self:say(("%s declara un ataque con %d criatura(s)."):format(P.name, #uids))
+		self:clampAllDamage()  -- (v1.3.0) respetar auras de Groto al mover a Combat
 		self:setWaiting(idx, "AttackEvolve")
 		return true
 	end,
@@ -991,6 +1002,7 @@ H.Block = {
 			atk.blocks[p.attacker] = p.inst.uid
 		end
 		self:say(("%s asigna %d bloqueo(s)."):format(D.name, #picked))
+		self:clampAllDamage()  -- (v1.3.0) respetar auras de HPredux
 		self.fastStage = 1
 		self:setWaiting(idx, "FastWindow")
 		return true

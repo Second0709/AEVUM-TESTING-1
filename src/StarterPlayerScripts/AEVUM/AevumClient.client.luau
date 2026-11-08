@@ -140,9 +140,6 @@ new("UITextSizeConstraint", { MaxTextSize = 18, MinTextSize = 8 }, pauseBtn)
 pauseBtn.Activated:Connect(function()
 	Remotes.Lobby:FireServer({ type = "DebugPause" })
 end)
-if Remotes:GetAttribute("DebugPause") == true then
-	pauseBtn.Visible = true
-end
 
 local shownTurn = nil
 local lastEventId = 0
@@ -201,6 +198,7 @@ button(overlay, "Volver al menú", C.btn, function()
 	lastEventId = 0
 	gameFrame.Visible = false
 	lobby.Visible = true
+	pauseBtn.Visible = false
 	lobbyStatus.Text = ""
 end, { Size = UDim2.new(0.2, 0, 0.07, 0), Position = UDim2.new(0.4, 0, 0.57, 0), ZIndex = 31 })
 
@@ -654,6 +652,7 @@ Remotes.State.OnClientEvent:Connect(function(v)
 	view, recvAt = v, os.clock()
 	lobby.Visible = false
 	gameFrame.Visible = true
+	pauseBtn.Visible = Remotes:GetAttribute("DebugPause") == true
 	render()
 	if v.over then hideBanner()
 	elseif v.turn ~= shownTurn then shownTurn = v.turn showBanner(v) end
