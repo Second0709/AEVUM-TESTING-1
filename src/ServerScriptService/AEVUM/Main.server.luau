@@ -3,6 +3,7 @@
 
 local RS = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
 local Shared = RS:WaitForChild("AEVUM")
 local Config = require(Shared:WaitForChild("Config"))
 local Cards = require(Shared:WaitForChild("CardDatabase"))
@@ -13,6 +14,14 @@ local InventoryService = require(script.Parent.InventoryService)
 local PlayerDataService = require(script.Parent.PlayerDataService)
 
 Cards.validate(Config.Match.MaxEnergy)
+
+-- Tablero 3D: no hay personaje, solo tablero y cartas (el cliente controla la cámara).
+if Config.Client and Config.Client.Board3D then
+	Players.CharacterAutoLoads = false
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character then plr.Character:Destroy() end
+	end
+end
 
 PlayerDataService.start()
 InventoryService.setProvider(PlayerDataService.getProvider())

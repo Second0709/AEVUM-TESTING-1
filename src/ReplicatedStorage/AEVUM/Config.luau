@@ -34,6 +34,12 @@ Config.Match = {
 	AutoPassWhenNoActions = true,
 }
 
+-- Opciones del cliente (tablero 3D). Board3D = false vuelve al tablero 2D clásico.
+Config.Client = {
+	Board3D = true,
+	Quality = "High", -- "High" | "Low" (Low: sin brillos animados, sin luces ni sombras)
+}
+
 Config.Sounds = {
 	Select = "rbxassetid://74677332039786",
 	Deselect = "rbxassetid://95511902174465",

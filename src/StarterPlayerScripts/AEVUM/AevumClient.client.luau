@@ -10,7 +10,10 @@ local player = Players.LocalPlayer
 local Shared = RS:WaitForChild("AEVUM")
 local Cards = require(Shared:WaitForChild("CardDatabase")).Data
 local Remotes = Shared:WaitForChild("Remotes")
-local SoundCfg = require(Shared:WaitForChild("Config")).Sounds
+local Cfg = require(Shared:WaitForChild("Config"))
+local SoundCfg = Cfg.Sounds
+local ClientCfg = Cfg.Client or {}
+local use3D = ClientCfg.Board3D == true
 
 local UI = script.Parent:WaitForChild("UI")
 local C = require(UI:WaitForChild("Theme"))
@@ -23,6 +26,7 @@ local LobbyUI = require(UI:WaitForChild("Lobby"))
 local PauseUI = require(UI:WaitForChild("Pause"))
 local BannerUI = require(UI:WaitForChild("Banner"))
 local OverlayUI = require(UI:WaitForChild("Overlay"))
+local Board3DUI = use3D and require(script.Parent:WaitForChild("UI3D"):WaitForChild("Board3D")) or nil
 local new, clear = Widgets.new, Widgets.clear
 local label, button = Widgets.label, Widgets.button
 local playSound = require(UI:WaitForChild("Sounds")).create(SoundCfg)
@@ -31,13 +35,17 @@ local gui = new("ScreenGui", { Name = "AevumGui", ResetOnSpawn = false, IgnoreGu
 
 local lobby, lobbyStatus = LobbyUI.create(gui, C, Widgets, Remotes)
 
-local gameFrame = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, Visible = false }, gui)
+-- Con el tablero 3D el fondo es transparente: se ve la escena detrás de los paneles 2D
+local gameFrame = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg,
+	BackgroundTransparency = use3D and 1 or 0, Visible = false }, gui)
 new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(30, 16, 66), C.bg), Rotation = 90 }, gameFrame)
+local starsLayer = new("Frame", { Name = "Stars", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+	Visible = not use3D }, gameFrame)
 local stars = Random.new(7)
 for _ = 1, 70 do
 	local size = stars:NextInteger(1, 3)
 	new("Frame", { Size = UDim2.fromOffset(size, size), Position = UDim2.fromScale(stars:NextNumber(), stars:NextNumber()),
-		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, gameFrame)
+		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, starsLayer)
 end
 
 local topBar = new("TextLabel", { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(1, 0, 0.065, 0),
@@ -55,7 +63,7 @@ new("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), Pa
 	PaddingBottom = UDim.new(0, 6) }, left)
 
 local board = new("Frame", { Position = UDim2.new(0.15, 0, 0.08, 0), Size = UDim2.new(0.68, 0, 0.68, 0),
-	BackgroundTransparency = 1 }, gameFrame)
+	BackgroundTransparency = 1, Visible = not use3D }, gameFrame)
 new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, board)
 
 local handFrame = new("Frame", { Position = UDim2.new(0.15, 0, 0.78, 0), Size = UDim2.new(0.68, 0, 0.21, 0),
@@ -329,6 +337,12 @@ local renderBoard = BoardUI.create({
 	onOppBench = onOppBench, onOppCombat = onOppCombat, onMyCombat = onMyCombat, onMyBench = onMyBench,
 	getState = getPanelState,
 })
+-- Tablero 3D (Fase 1: escena estática y cámara). Se muestra desde el lobby como fondo.
+local renderBoard3D, show3D = nil, nil
+if use3D then
+	renderBoard3D, show3D = Board3DUI.create({ quality = ClientCfg.Quality })
+	show3D()
+end
 local renderHand = HandUI.create({
 	parent = handFrame, clear = clear, theme = C, cards = Cards, cardBtn = cardBtn, cardText = cardText,
 	isTarget = isTarget, onHand = onHand, getState = getPanelState,
@@ -354,7 +368,7 @@ render = function()
 		lastKey = key
 		sel, targetMode, attackSel, blockPick, blockPairs = nil, nil, {}, nil, {}
 	end
-	renderBoard()
+	if use3D then renderBoard3D(getPanelState()) else renderBoard() end
 	renderHand()
 	renderLeft()
 	renderRight()

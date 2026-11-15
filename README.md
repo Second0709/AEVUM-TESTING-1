@@ -20,6 +20,12 @@ With the Luau CLI installed, run the focused game-rule regressions from the proj
 
 ```bash
 luau tests/Match.spec.luau
+luau tests/Layout.spec.luau
 ```
+
+## Tablero 3D (en desarrollo, rama `feature/tablero-3d`)
+
+El plan completo está en `docs/PLAN_TABLERO_3D.md`. El tablero 3D se activa con
+`Config.Client.Board3D` (`false` = tablero 2D clásico) y la calidad con `Config.Client.Quality`.
 
 For more help, check out [the Rojo documentation](https://rojo.space/docs).
