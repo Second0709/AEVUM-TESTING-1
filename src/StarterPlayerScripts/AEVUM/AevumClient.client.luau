@@ -92,9 +92,11 @@ local pauseBtn = PauseUI.create(gui, C, Widgets, Remotes)
 
 local shownTurn = nil
 local lastEventId = 0
+local board3dApi = nil -- API del tablero 3D (reset, isHandHidden); nil con el tablero 2D
 local hideBanner, showBanner = BannerUI.create(gameFrame, new, TweenService)
 local overlay, overText, overReason = OverlayUI.create(gui, C, Widgets, Remotes, function()
 	hideBanner()
+	if board3dApi then board3dApi.reset() end
 	shownTurn = nil
 	lastEventId = 0
 	gameFrame.Visible = false
@@ -337,15 +339,60 @@ local renderBoard = BoardUI.create({
 	onOppBench = onOppBench, onOppCombat = onOppCombat, onMyCombat = onMyCombat, onMyBench = onMyBench,
 	getState = getPanelState,
 })
--- Tablero 3D (Fase 1: escena estática y cámara). Se muestra desde el lobby como fondo.
-local renderBoard3D, show3D = nil, nil
+-- Tablero 3D. Se muestra desde el lobby como fondo.
+-- Mano 2D <-> tablero 3D: Hand registra cada botón y el 3D lo usa como origen/destino de los vuelos.
+local handWidgets = {}
+local function registerHand(uid, widget) handWidgets[uid] = widget end
+local function handRect(uid)
+	local w = handWidgets[uid]
+	if w and w.Parent then return w.AbsolutePosition + w.AbsoluteSize / 2, w.AbsoluteSize end
+	return nil
+end
+
+-- Tocar una casilla vacía: con una carta de la mano seleccionada, la coloca ahí; si no, cancela la selección
+local function onSlot3D(side, zone, slot)
+	if side == "Self" and zone == "Bench" and sel and sel.zone == "hand" and mine() and kind() == "Actions" and not targetMode then
+		for _, h in ipairs(view.me.hand) do
+			if h.uid == sel.uid then
+				if Cards[h.cardId].evolveFrom then break end -- las evoluciones se juegan desde el panel derecho
+				send({ type = "PlayCard", uid = h.uid, slot = slot })
+				return
+			end
+		end
+	end
+	if targetMode or sel then
+		targetMode, sel = nil, nil
+		playSound("Deselect")
+		render()
+	end
+end
+local function onMiss3D()
+	if targetMode or sel then
+		targetMode, sel = nil, nil
+		playSound("Deselect")
+		render()
+	end
+end
+local function onAvatar3D(side)
+	tryTarget(side, "Avatar", 0, nil)
+end
+
+local renderBoard3D, show3D, hide3D = nil, nil, nil
 if use3D then
-	renderBoard3D, show3D = Board3DUI.create({ quality = ClientCfg.Quality })
+	renderBoard3D, show3D, hide3D, board3dApi = Board3DUI.create({
+		quality = ClientCfg.Quality, cards = Cards, theme = C, handRect = handRect,
+		isTarget = isTarget, activatableAt = activatableAt,
+		onMyBench = onMyBench, onMyCombat = onMyCombat, onOppBench = onOppBench, onOppCombat = onOppCombat,
+		onSlot = onSlot3D, onAvatar = onAvatar3D, onMiss = onMiss3D,
+		requestRender = function() render() end,
+	})
 	show3D()
 end
 local renderHand = HandUI.create({
 	parent = handFrame, clear = clear, theme = C, cards = Cards, cardBtn = cardBtn, cardText = cardText,
 	isTarget = isTarget, onHand = onHand, getState = getPanelState,
+	register = registerHand,
+	isHidden = function(uid) return board3dApi ~= nil and board3dApi.isHandHidden(uid) end,
 })
 
 local renderLeft = LeftPanelUI.create({

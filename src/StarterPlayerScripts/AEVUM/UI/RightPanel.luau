@@ -133,9 +133,16 @@ function RightPanel.create(ctx)
 				end
 				add("No responder (pasar)", ctx.theme.btnOff, function() ctx.send({ type = "Pass" }) end)
 			elseif kind == "AttackDeclare" then
-				local n = 0
+				-- Orden fijo (Banca de izquierda a derecha, luego Combate): el servidor coloca a los atacantes
+				-- de la Banca en las primeras casillas libres de Combate en este orden, y el tablero 3D lo anticipa.
 				local uids = {}
-				for uid in pairs(state.attackSel) do n += 1 uids[#uids + 1] = uid end
+				for _, inst in ipairs(state.view.me.bench) do
+					if inst and state.attackSel[inst.uid] then uids[#uids + 1] = inst.uid end
+				end
+				for _, inst in ipairs(state.view.me.combat) do
+					if inst and state.attackSel[inst.uid] then uids[#uids + 1] = inst.uid end
+				end
+				local n = #uids
 				if n > 0 then add(("Declarar ataque (%d)"):format(n), ctx.theme.atk, function() ctx.send({ type = "DeclareAttack", attackers = uids }) end) end
 				add("No atacar este turno", ctx.theme.btnOff, function() ctx.send({ type = "SkipAttack" }) end)
 			elseif kind == "AttackEvolve" then

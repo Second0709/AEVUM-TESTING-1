@@ -17,8 +17,10 @@ Layout.ROW_BENCH = 12.8 -- |z| de la fila de Banca
 Layout.SIDE_X = 17.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
 
 -- Alturas (Y = 0 es la superficie de la mesa)
-Layout.CARD_Y = 0.2 -- centro de una carta tumbada
-Layout.HOVER_Y = 3 -- altura de una carta "levantada"
+Layout.CARD_Y = 0.6 -- centro de una carta que flota sobre su casilla
+Layout.SEL_LIFT = 0.9 -- cuánto se eleva una carta seleccionada
+Layout.HOVER_Y = 2.8 -- altura a la que se alza una carta antes de volar a otra zona
+Layout.PILE_Y = 0.95 -- altura de entrada/salida en mazo y cementerio
 Layout.ORB_Y = 4 -- altura del orbe central
 
 local function sign(side)
@@ -50,6 +52,30 @@ end
 -- Cementerio: columna derecha, a la altura del Combate
 function Layout.graveyard(side)
 	return { x = Layout.SIDE_X, z = sign(side) * Layout.ROW_COMBAT }
+end
+
+-- Punto de salida de las cartas robadas (cima del mazo)
+function Layout.deckTop(side)
+	local d = Layout.deck(side)
+	return { x = d.x, y = Layout.PILE_Y, z = d.z }
+end
+
+-- Punto de llegada de las cartas que van al cementerio
+function Layout.graveDrop(side)
+	local g = Layout.graveyard(side)
+	return { x = g.x, y = Layout.PILE_Y, z = g.z }
+end
+
+-- Primeros `n` índices libres de una zona. `list` usa false/nil para casilla vacía (como el view).
+-- Sirve para prever a qué casillas de Combate irán los atacantes que salen de la Banca.
+function Layout.freeSlots(list, n, count)
+	count = count or 5
+	local out = {}
+	for i = 1, count do
+		if #out >= n then break end
+		if not list[i] then out[#out + 1] = i end
+	end
+	return out
 end
 
 -- Orbe central. attacker: "Self" | "Enemy" | nil (neutro). Se desplaza hacia quien ataca.

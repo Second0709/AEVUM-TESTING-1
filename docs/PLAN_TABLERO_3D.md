@@ -50,6 +50,9 @@ Sirve para retomar el trabajo en un chat nuevo sin perder contexto.
 | Arte | **Arte por carta** (lo produce el equipo, necesita tiempo). Mientras tanto, imagen provisional. |
 | Calidad gráfica | **Opción manual** para dispositivos de bajo rendimiento. |
 | Sonido y partículas | **Sí**, referencias: Yu-Gi-Oh! Duel Links, MTG Arena y Legends of Runeterra. |
+| Banca propia vs rival | Tus cartas de Banca se ven **boca arriba para ti**; las del rival, **boca abajo** hasta que atacan (se voltean al avanzar a Combate). |
+| Animaciones de carta | mano → Banca · Banca → Combate (con volteo si se revela) · evolución (la carta de la mano se funde con la criatura) · robar del mazo a la mano · tablero → mano · tablero/mano → cementerio. Se deducen comparando el `view` por `uid`; no usan `events`. |
+| Entrada 3D | Tocar/clic en cartas, casillas vacías y cristales (raycast). Con una carta de la mano seleccionada se iluminan las casillas libres de Banca y tocar una la coloca ahí (`PlayCard` con `slot`). Al declarar ataque se marcan las casillas de Combate donde entrarán los atacantes (izquierda → derecha). |
 | Primer paso técnico | Construir con `Parts` y materiales de Roblox. Mallas de Blender solo si hace falta más adelante. |
 
 ---
@@ -67,6 +70,10 @@ Sirve para retomar el trabajo en un chat nuevo sin perder contexto.
 9. **Fin de partida y banners:** se mantienen en 2D (`Overlay`, `Banner`).
 
 ---
+
+> **Estado:** Fase 1 hecha. Cartas 3D, animaciones y `Input3D` (adelanto de las Fases 2, 3 y parte de la 4) en el segundo commit.
+> **Nota:** ninguna regla actual devuelve una carta del tablero a la mano; la animación existe y se dispara sola si un uid de tu Banca/Combate aparece en tu mano, pero hoy no la provoca ninguna carta.
+> **Pendiente:** arena más clara y detallada (parche aparte), flechas de objetivo, cementerio navegable, reversos de la mano rival, sonidos y partículas.
 
 ## 4. Arquitectura propuesta
 

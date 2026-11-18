@@ -34,7 +34,7 @@ function BoardBuilder.build(origin, quality)
 	local folder = Instance.new("Folder")
 	folder.Name = "AevumBoard3D"
 	local glow = {}
-	local refs = { slots = {}, vitals = {}, decks = {}, graveyards = {} }
+	local refs = { slots = {}, vitals = {}, decks = {}, graveyards = {}, hit = {}, markers = {}, vitalHit = {} }
 
 	-- Crea una pieza anclada. pos es relativa al centro de la mesa.
 	local function part(name, size, pos, color, material, opts)
@@ -44,13 +44,13 @@ function BoardBuilder.build(origin, quality)
 		p.Anchored = true
 		p.CanCollide = false
 		p.CanTouch = false
-		p.CanQuery = false -- decorado: no estorba al raycast de la Fase 3
+		p.CanQuery = opts.query == true -- decorado: no estorba al raycast; solo las zonas táctiles lo activan
 		p.Size = size
 		p.Color = color
 		p.Material = material or Enum.Material.Slate
 		p.TopSurface = Enum.SurfaceType.Smooth
 		p.BottomSurface = Enum.SurfaceType.Smooth
-		p.CastShadow = high and math.max(size.X, size.Y, size.Z) >= 2
+		p.CastShadow = high and math.max(size.X, size.Y, size.Z) >= 2 and (opts.transparency or 0) < 1
 		if opts.transparency then p.Transparency = opts.transparency end
 		if opts.shape then p.Shape = opts.shape end
 		p.CFrame = CFrame.new(origin + pos) * (opts.rot or CFrame.new())
@@ -107,7 +107,19 @@ function BoardBuilder.build(origin, quality)
 			for i = 1, SLOTS do
 				local p = Layout.slot(side, zone, i, SLOTS)
 				local name = ("Casilla_%s_%s_%d"):format(side, zone, i)
-				refs.slots[("%s:%s:%d"):format(side, zone, i)] = socket(name, p.x, p.z, PAL[side], dz)
+				local key = ("%s:%s:%d"):format(side, zone, i)
+				refs.slots[key] = socket(name, p.x, p.z, PAL[side], dz)
+				-- Zona táctil invisible, más generosa que la carta (dedos en móvil)
+				local hit = part("Zona_" .. name, Vector3.new(5, 0.3, 6.6), Vector3.new(p.x, 0.2, p.z), PAL.slot, nil,
+					{ transparency = 1, query = true })
+				hit:SetAttribute("Kind", "slot")
+				hit:SetAttribute("Side", side)
+				hit:SetAttribute("Zone", zone)
+				hit:SetAttribute("Index", i)
+				refs.hit[key] = hit
+				-- Marcador de casilla: se enciende para "puedes colocar aquí" / "aquí irá el atacante"
+				refs.markers[key] = part("Marcador_" .. name, Vector3.new(4.3, 0.04, 5.9), Vector3.new(p.x, 0.17, p.z),
+					PAL.glyph, Enum.Material.Neon, { transparency = 1 })
 			end
 		end
 	end
@@ -155,6 +167,11 @@ function BoardBuilder.build(origin, quality)
 			{ transparency = 0.1, rot = CFrame.Angles(math.rad(45), math.rad(45), 0), glow = true })
 		light(crystal, color, 12, 1.2)
 		refs.vitals[side] = crystal
+		local vhit = part("ZonaCristal_" .. side, Vector3.new(5, 5, 5), Vector3.new(v.x, 2.6, v.z), PAL.slot, nil,
+			{ transparency = 1, query = true })
+		vhit:SetAttribute("Kind", "avatar")
+		vhit:SetAttribute("Side", side)
+		refs.vitalHit[side] = vhit
 
 		local d = Layout.deck(side)
 		socket("Mazo_" .. side, d.x, d.z, color, sgn * 2.7)
