@@ -41,14 +41,31 @@ local function signal()
 	return s
 end
 
-local instMethods = {}
+local kids = setmetatable({}, { __mode = "k" }) -- padre -> lista de hijos (para contar instancias en las pruebas)
+local function detach(o, parent)
+	local list = parent and kids[parent]
+	if not list then return end
+	for i, c in ipairs(list) do
+		if c == o then table.remove(list, i) return end
+	end
+end
+local function descendants(o, out)
+	for _, c in ipairs(kids[o] or {}) do
+		out[#out + 1] = c
+		descendants(c, out)
+	end
+	return out
+end
 local function newInstance(class)
 	local props, attrs = { ClassName = class }, {}
 	local o = {}
 	setmetatable(o, {
 		__index = function(_, k)
 			if props[k] ~= nil then return props[k] end
-			if k == "Destroy" or k == "PivotTo" or k == "ScaleTo" then return function() end end
+			if k == "Destroy" then return function() detach(o, props.Parent) props.Parent = nil end end
+			if k == "GetChildren" then return function() return table.clone(kids[o] or {}) end end
+			if k == "GetDescendants" then return function() return descendants(o, {}) end end
+			if k == "PivotTo" or k == "ScaleTo" then return function() end end
 			if k == "SetAttribute" then return function(_, n, v) attrs[n] = v end end
 			if k == "GetAttribute" then return function(_, n) return attrs[n] end end
 			if k == "FindFirstAncestorOfClass" then return function() return o end end
@@ -56,7 +73,16 @@ local function newInstance(class)
 			if k == "Play" or k == "Cancel" then return function() end end
 			return nil
 		end,
-		__newindex = function(_, k, v) props[k] = v end,
+		__newindex = function(_, k, v)
+			if k == "Parent" then
+				detach(o, props.Parent)
+				if v then
+					kids[v] = kids[v] or {}
+					table.insert(kids[v], o)
+				end
+			end
+			props[k] = v
+		end,
 	})
 	return o
 end

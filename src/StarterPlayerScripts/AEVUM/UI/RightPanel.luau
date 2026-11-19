@@ -1,3 +1,5 @@
+local CardDetail = require(script.Parent.CardDetail)
+
 local RightPanel = {}
 
 local HINTS = {
@@ -166,15 +168,8 @@ function RightPanel.create(ctx)
 			end
 		end
 
-		if state.inspect and ctx.cards[state.inspect] then
-			local card = ctx.cards[state.inspect]
-			local details = ctx.label(ctx.parent, ("%s\n%s\n%s"):format(card.name,
-				card.type == "Creature" and "Criatura" or ("Hechizo " .. (card.speed == "Fast" and "rápido" or "lento")), card.text),
-				{ Size = UDim2.new(1, 0, 0, 110), LayoutOrder = 50, TextColor3 = ctx.theme.dim })
-			details.TextScaled = false
-			details.TextSize = 13
-			details.TextYAlignment = Enum.TextYAlignment.Top
-		end
+		-- Detalle grande de la última carta tocada (propia o rival revelada)
+		CardDetail.draw(ctx, ctx.parent, state, 50)
 	end
 end
 

@@ -13,6 +13,7 @@ import os, shutil, subprocess, sys, tempfile
 
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ui3d = os.path.join(root, "src", "StarterPlayerScripts", "AEVUM", "UI3D")
+ui2d = os.path.join(root, "src", "StarterPlayerScripts", "AEVUM", "UI")  # solo los módulos 2D sin dependencias propias
 luau = sys.argv[1] if len(sys.argv) > 1 else "luau"
 mods = [f[:-5] for f in os.listdir(ui3d) if f.endswith(".luau")]
 inj = (
@@ -26,6 +27,9 @@ tmp = tempfile.mkdtemp()
 try:
     for m in mods:
         src = open(os.path.join(ui3d, m + ".luau"), encoding="utf-8").read()
+        open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
+    for m in ("CardDetail",):
+        src = open(os.path.join(ui2d, m + ".luau"), encoding="utf-8").read()
         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
     shutil.copy(os.path.join(root, "src", "ReplicatedStorage", "AEVUM", "CardDatabase.luau"), tmp)
     for f in ("_stubs.luau", "smoke.luau"):

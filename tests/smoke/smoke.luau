@@ -5,6 +5,57 @@ local Board3D = require("./Board3D")
 
 local function expect(c, m) if not c then error(m, 2) end end
 
+-- 0) cara mínima: pocas instancias por carta y solo arte + ATK + VIDA (hechizo: franja propia)
+do
+	local CardView = require("./CardView")
+	local pool = CardView.newPool(S.Instance.new("Folder"), Cards, "High")
+	local probe = pool.acquire()
+	local count = #probe.model:GetDescendants() + 1
+	print("instancias por carta:", count)
+	expect(count <= 24, "una carta 3D debe tener <= 24 instancias (hoy " .. count .. ")")
+	expect(probe.ui.name == nil and probe.ui.cost == nil, "la carta no lleva nombre ni costo")
+	CardView.setContent(probe, Cards, "TITAN", { atk = 5, maxHp = 4, damage = 1, uid = 1 })
+	expect(probe.ui.atk.Text == "5" and probe.ui.hp.Text == "3", "ATK y VIDA actuales en la carta")
+	expect(probe.ui.atkBadge.Visible and probe.ui.hpBadge.Visible and not probe.ui.spell.Visible, "criatura: insignias, sin franja de hechizo")
+	CardView.setContent(probe, Cards, "GOLPE", nil)
+	expect(not probe.ui.atkBadge.Visible and probe.ui.spell.Visible, "hechizo: franja propia, sin insignias")
+	pool.release(probe)
+end
+
+-- 0b) detalle grande de carta (panel derecho): ATK/VIDA actuales, sigue la evolución por uid, plantilla si ya no está
+do
+	local CardDetail = require("./CardDetail")
+	local parent = S.Instance.new("Frame")
+	parent.AbsoluteSize = S.V3(300, 900, 0)
+	local function new(class, props, p)
+		local o = S.Instance.new(class)
+		for k, v in pairs(props) do o[k] = v end
+		o.Parent = p
+		return o
+	end
+	local ctx = { new = new, cards = Cards, theme = { text = 1, sel = 2 } }
+	local function texts(frame)
+		local out = {}
+		for _, d in ipairs(frame:GetDescendants()) do
+			if d.Text then out[d.Name] = d.Text end
+		end
+		return out
+	end
+	local view = { me = { hand = {}, bench = { false, false, false, false, false }, combat = { { uid = 5, cardId = "TITAN", atk = 7, maxHp = 4, damage = 1, shield = 2 } } },
+		opp = { bench = {}, combat = {} } }
+	local f = CardDetail.draw(ctx, parent, { view = view, inspect = "TITAN", inspectUid = 5 }, 50)
+	local tx = texts(f)
+	expect(tx.Nombre == Cards.TITAN.name and tx.Ataque == "ATK 7" and tx.Vida == "VIDA 3/4", "detalle: ATK/VIDA actuales de la instancia")
+	expect(tx.Texto:find("ESCUDO 2") ~= nil, "detalle: estados de la criatura")
+	view.me.combat[1] = { uid = 5, cardId = "HEROE", atk = 3, maxHp = 4, damage = 0 }
+	tx = texts(CardDetail.draw(ctx, parent, { view = view, inspect = "APRENDIZ", inspectUid = 5 }, 50))
+	expect(tx.Nombre == Cards.HEROE.name, "detalle: tras evolucionar manda la forma actual (mismo uid)")
+	view.me.combat[1] = false
+	tx = texts(CardDetail.draw(ctx, parent, { view = view, inspect = "GOLPE", inspectUid = 99 }, 50))
+	expect(tx.Nombre == Cards.GOLPE.name and tx.Ataque == nil, "detalle: sin instancia viva muestra la plantilla (hechizo sin ATK/VIDA)")
+	expect(CardDetail.draw(ctx, parent, { view = view }, 50) == nil, "detalle: sin carta elegida no dibuja nada")
+end
+
 local handRects = {}
 local render, show, hide, api = Board3D.create({
 	cards = Cards, theme = { sel = 1, tgt = 2, atk = 3 },

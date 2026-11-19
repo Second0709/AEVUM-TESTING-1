@@ -107,7 +107,8 @@ end)
 
 local view, recvAt = nil, 0
 local sel = nil
-local inspect = nil
+local inspect = nil -- cardId de la última carta tocada (detalle grande en el panel derecho)
+local inspectUid = nil -- uid de esa instancia: el detalle muestra su ATK/VIDA actuales
 local targetMode = nil
 local attackSel = {}
 local blockPick = nil
@@ -226,7 +227,7 @@ local function onHand(inst, index)
 		sel = { zone = "hand", uid = inst.uid }
 		playSound("Select")
 	end
-	inspect = inst.cardId
+	inspect, inspectUid = inst.cardId, inst.uid
 	render()
 end
 
@@ -260,7 +261,7 @@ end
 
 local function onMyBench(slot, inst)
 	if tryTarget("Self", "Bench", slot, inst.uid) then return end
-	inspect = inst.cardId
+	inspect, inspectUid = inst.cardId, inst.uid
 	if kind() == "AttackDeclare" and mine() then
 		if inst.prepared and Cards[inst.cardId].type == "Creature" then toggleAttacker(inst) end
 		return
@@ -276,7 +277,7 @@ end
 
 local function onMyCombat(slot, inst)
 	if tryTarget("Self", "Combat", slot, inst.uid) then return end
-	inspect = inst.cardId
+	inspect, inspectUid = inst.cardId, inst.uid
 	if kind() == "AttackDeclare" and mine() then toggleAttacker(inst) return end
 	if kind() == "Block" and mine() and view.attack.mode == "regular" then pickBlocker(inst.uid) render() return end
 	toggleSel("combat", inst, slot)
@@ -285,7 +286,7 @@ end
 
 local function onOppCombat(slot, inst)
 	if tryTarget("Enemy", "Combat", slot, inst.uid) then return end
-	inspect = inst.cardId
+	inspect, inspectUid = inst.cardId, inst.uid
 	if kind() == "Block" and mine() and blockPick then
 		local isAttacker = false
 		for _, a in ipairs(view.attack.attackers) do if a == inst.uid then isAttacker = true end end
@@ -328,7 +329,7 @@ end
 
 local function getPanelState()
 	return {
-		view = view, sel = sel, inspect = inspect, targetMode = targetMode,
+		view = view, sel = sel, inspect = inspect, inspectUid = inspectUid, targetMode = targetMode,
 		attackSel = attackSel, blockPick = blockPick, blockPairs = blockPairs,
 	}
 end
