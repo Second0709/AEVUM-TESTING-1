@@ -1,0 +1,112 @@
+local S = require("./_stubs")
+local V3, renderSteppedFns, flushDeferred = S.V3, S.renderSteppedFns, S.flushDeferred
+local Cards = require("./CardDatabase").Data
+local Board3D = require("./Board3D")
+
+local function expect(c, m) if not c then error(m, 2) end end
+
+local handRects = {}
+local render, show, hide, api = Board3D.create({
+	cards = Cards, theme = { sel = 1, tgt = 2, atk = 3 },
+	handRect = function(uid) return V3(300 + uid * 50, 900, 0), V3(140, 200, 0) end,
+	isTarget = function() return false end, activatableAt = function() return nil end,
+	onMyBench = function() end, onMyCombat = function() end, onOppBench = function() end, onOppCombat = function() end,
+	onSlot = function() end, onAvatar = function() end, requestRender = function() end,
+})
+show()
+local step = renderSteppedFns[1]
+local function run(seconds)
+	for _ = 1, math.floor(seconds * 60) do step(1 / 60) flushDeferred() end
+end
+
+local function mineInst(uid, cardId, extra)
+	local t = { uid = uid, cardId = cardId, damage = 0, prepared = true, atk = Cards[cardId].atk, maxHp = Cards[cardId].hp, shield = 0 }
+	for k, v in pairs(extra or {}) do t[k] = v end
+	return t
+end
+local function emptyZone() return { false, false, false, false, false } end
+local function mkView(o)
+	return {
+		you = 1, turn = o.turn or 3, attackerIdx = 1, over = false,
+		waiting = { player = 1, kind = o.kind or "Actions", timeLeft = 30 },
+		me = { hp = 20, shield = 0, deck = o.deck or 30, hand = o.hand or {}, bench = o.bench or emptyZone(), combat = o.combat or emptyZone(), graveyard = o.grave or {} },
+		opp = { hp = 20, shield = 0, deck = o.odeck or 30, hand = o.ohand or 5, bench = o.obench or emptyZone(), combat = o.ocombat or emptyZone(), graveyard = o.ograve or {} },
+	}
+end
+local function state(view, extra)
+	local s = { view = view, blockPairs = {}, attackSel = {}, blockPick = nil, sel = nil, targetMode = nil }
+	for k, v in pairs(extra or {}) do s[k] = v end
+	return s
+end
+local function hnd(uid, cardId) return { uid = uid, cardId = cardId, cost = Cards[cardId].cost } end
+
+-- 1) primer estado: todo aparece sin animar
+render(state(mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })))
+expect(api.debug().live == 0 and api.debug().flyers == 0, "primer estado vacío")
+
+-- 2) juego uid 1 a la Banca (casilla 2): sale de la mano
+local bench = emptyZone() bench[2] = mineInst(1, "APRENDIZ", { prepared = false })
+render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE") }, bench = bench })))
+expect(api.debug().live == 1, "la carta jugada aparece en el tablero")
+run(1.5)
+expect(api.debug().flyers == 0, "sin vuelos pendientes tras jugar")
+
+-- 3) el rival coloca una carta boca abajo en su Banca (casilla 3)
+local obench = emptyZone() obench[3] = { uid = 100, faceDown = true }
+render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE") }, bench = bench, obench = obench, ohand = 4 })))
+expect(api.debug().live == 2, "la carta boca abajo del rival aparece")
+run(1.5)
+
+-- 4) robo propio y del rival
+render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE"), hnd(4, "TITAN") }, bench = bench, obench = obench, ohand = 5, deck = 29, odeck = 29 })))
+local d = api.debug()
+expect(d.flyers == 2 and d.hidden == 1 and api.isHandHidden(4), "robos: 2 vuelos y la carta 4 oculta en la mano 2D")
+run(2)
+d = api.debug()
+expect(d.flyers == 0 and d.hidden == 0, "los robos terminan y la mano deja de estar oculta")
+
+-- 5) avance: mi uid 1 Banca->Combate; la carta del rival se revela y pasa a Combate
+local combat = emptyZone() combat[1] = mineInst(1, "APRENDIZ")
+local ocombat = emptyZone() ocombat[1] = { uid = 100, cardId = "CAZADOR", damage = 0, atk = 3, maxHp = 2, shield = 0 }
+local hand5 = { hnd(2, "CENTINELA"), hnd(3, "GOLPE"), hnd(4, "TITAN") }
+render(state(mkView({ hand = hand5, combat = combat, ocombat = ocombat, ohand = 5, deck = 29, odeck = 29, kind = "AttackDeclare" })))
+expect(api.debug().live == 2 and api.debug().flyers == 0, "avance: sin cartas nuevas ni vuelos")
+run(1.5)
+
+-- 6) marcadores: con ataque declarado y una criatura en Banca seleccionada para atacar
+local bench6 = emptyZone() bench6[1] = mineInst(9, "CENTINELA")
+render(state(mkView({ hand = hand5, bench = bench6, combat = combat, ocombat = ocombat, ohand = 5, deck = 29, odeck = 29, kind = "AttackDeclare" }),
+	{ attackSel = { [9] = true } }))
+run(1)
+
+-- 7) muertes: la mía va al cementerio y la del rival también (cardId en la lista de cementerio)
+render(state(mkView({ hand = hand5, bench = bench6, combat = emptyZone(), ocombat = emptyZone(), ohand = 5, deck = 29, odeck = 29,
+	grave = { "APRENDIZ" }, ograve = { "CAZADOR" } })))
+expect(api.debug().flyers == 2 and api.debug().live == 1, "dos cartas van al cementerio")
+run(2)
+expect(api.debug().flyers == 0, "los vuelos al cementerio terminan")
+
+-- 8) devolver al tablero->mano: la carta 9 de mi Banca aparece en mi mano
+render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE"), hnd(4, "TITAN"), hnd(9, "CENTINELA") }, deck = 29, odeck = 29,
+	grave = { "APRENDIZ" }, ograve = { "CAZADOR" }, ohand = 5 })))
+expect(api.debug().flyers == 1 and api.isHandHidden(9), "devolución: vuelo hacia la mano y carta 9 oculta")
+run(2)
+expect(api.debug().flyers == 0 and not api.isHandHidden(9), "la devolución termina")
+
+-- 9) evolución: Aprendiz en Combate + Héroe en mano -> misma carta cambia de forma y la carta de la mano se funde
+local c9 = emptyZone() c9[2] = mineInst(7, "APRENDIZ")
+local h9 = { hnd(8, "HEROE"), hnd(2, "CENTINELA") }
+render(state(mkView({ hand = h9, combat = c9, deck = 29, odeck = 29, grave = { "APRENDIZ" }, ograve = { "CAZADOR" } })))
+run(1.5)
+local c9b = emptyZone() c9b[2] = mineInst(7, "HEROE")
+render(state(mkView({ hand = { hnd(2, "CENTINELA") }, combat = c9b, deck = 29, odeck = 29, grave = { "APRENDIZ" }, ograve = { "CAZADOR" } })))
+expect(api.debug().flyers == 1, "evolución: la carta de evolución vuela hacia la criatura")
+run(2)
+expect(api.debug().flyers == 0 and api.debug().live == 1, "evolución termina")
+
+-- 10) partida nueva (turno menor) y reset: se limpia todo
+render(state(mkView({ turn = 1, hand = { hnd(1, "APRENDIZ") } })))
+expect(api.debug().live == 0 and api.debug().flyers == 0, "partida nueva limpia el tablero")
+api.reset()
+hide()
+print("Board3D smoke OK")
