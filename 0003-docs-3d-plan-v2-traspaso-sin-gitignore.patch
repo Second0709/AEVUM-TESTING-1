@@ -1,0 +1,1592 @@
+From f21d5e5f66e79f4db4e4156106dafad0e011f7b3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 19 Nov 2026 03:26:51 +0000
+Subject: [PATCH] =?UTF-8?q?docs(3d):=20plan=20v2=20de=20traspaso,=20refere?=
+ =?UTF-8?q?ncia=20HTML=20y=20arn=C3=A9s=20de=20pruebas?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- docs/PLAN_TABLERO_3D.md reescrito: estado real, decisiones (disco, barreras, ataque directo, cartas mínimas,
+  cementerio), diseño objetivo de arena, parches pendientes, errores ya cometidos y flujo de pruebas
+- docs/referencia/aevum_tablero_v2.html: maqueta interactiva aprobada
+- tests/smoke: prueba de humo de Board3D sin Roblox Studio (python3 tests/smoke/run.py)
+- .gitignore: quita el BOM inicial e ignora *.patch; se elimina el .patch versionado
+---
+ ...el-tablero-3D-templo-est-tico-c-mara.patch | 855 ------------------
+ docs/PLAN_TABLERO_3D.md                       | 255 ++++--
+ docs/referencia/aevum_tablero_v2.html         | 140 +++
+ tests/smoke/_stubs.luau                       |  86 ++
+ tests/smoke/run.py                            |  35 +
+ tests/smoke/smoke.luau                        | 112 +++
+ 6 files changed, 532 insertions(+), 951 deletions(-)
+ delete mode 100644 0001-feat-3d-Fase-1-del-tablero-3D-templo-est-tico-c-mara.patch
+ create mode 100644 docs/referencia/aevum_tablero_v2.html
+ create mode 100644 tests/smoke/_stubs.luau
+ create mode 100644 tests/smoke/run.py
+ create mode 100644 tests/smoke/smoke.luau
+
+diff --git a/0001-feat-3d-Fase-1-del-tablero-3D-templo-est-tico-c-mara.patch b/0001-feat-3d-Fase-1-del-tablero-3D-templo-est-tico-c-mara.patch
+deleted file mode 100644
+index 07cefe0..0000000
+--- a/0001-feat-3d-Fase-1-del-tablero-3D-templo-est-tico-c-mara.patch
++++ /dev/null
+@@ -1,855 +0,0 @@
+-From 92c0f92eff6dfee68b8137195b654441fd5314dc Mon Sep 17 00:00:00 2001
+-From: Claude <noreply@anthropic.com>
+-Date: Sun, 15 Nov 2026 03:05:32 +0000
+-Subject: [PATCH] =?UTF-8?q?feat(3d):=20Fase=201=20del=20tablero=203D=20(te?=
+- =?UTF-8?q?mplo=20est=C3=A1tico,=20c=C3=A1mara=20adaptable,=20sin=20person?=
+- =?UTF-8?q?aje)?=
+-MIME-Version: 1.0
+-Content-Type: text/plain; charset=UTF-8
+-Content-Transfer-Encoding: 8bit
+-
+-- UI3D/Layout: posiciones puras de casillas, cristales, mazos, orbe y encuadre de cámara
+-- UI3D/BoardBuilder: templo de piedra y oro con surcos de neón, orbe, cristales y pilares
+-- UI3D/CameraRig: cámara Scriptable adaptable a la proporción de pantalla
+-- UI3D/Board3D: show/hide/render (render aún vacío, Fase 2)
+-- Config.Client { Board3D, Quality }; Main: CharacterAutoLoads=false con 3D
+-- AevumClient: fondo transparente y tablero 2D oculto cuando Board3D está activo
+-- docs/PLAN_TABLERO_3D.md y tests/Layout.spec.luau
+----
+- README.md                                     |   6 +
+- docs/PLAN_TABLERO_3D.md                       | 132 ++++++++++
+- src/ReplicatedStorage/AEVUM/Config.luau       |   6 +
+- .../AEVUM/Main.server.luau                    |   9 +
+- .../AEVUM/AevumClient.client.luau             |  24 +-
+- .../AEVUM/UI3D/Board3D.luau                   |  70 ++++++
+- .../AEVUM/UI3D/BoardBuilder.luau              | 233 ++++++++++++++++++
+- .../AEVUM/UI3D/CameraRig.luau                 |  67 +++++
+- .../AEVUM/UI3D/Layout.luau                    | 101 ++++++++
+- tests/Layout.spec.luau                        |  40 +++
+- 10 files changed, 683 insertions(+), 5 deletions(-)
+- create mode 100644 docs/PLAN_TABLERO_3D.md
+- create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+- create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+- create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau
+- create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+- create mode 100644 tests/Layout.spec.luau
+-
+-diff --git a/README.md b/README.md
+-index b317168..5fa5b65 100644
+---- a/README.md
+-+++ b/README.md
+-@@ -20,6 +20,12 @@ With the Luau CLI installed, run the focused game-rule regressions from the proj
+- 
+- ```bash
+- luau tests/Match.spec.luau
+-+luau tests/Layout.spec.luau
+- ```
+- 
+-+## Tablero 3D (en desarrollo, rama `feature/tablero-3d`)
+-+
+-+El plan completo está en `docs/PLAN_TABLERO_3D.md`. El tablero 3D se activa con
+-+`Config.Client.Board3D` (`false` = tablero 2D clásico) y la calidad con `Config.Client.Quality`.
+-+
+- For more help, check out [the Rojo documentation](https://rojo.space/docs).
+-\ No newline at end of file
+-diff --git a/docs/PLAN_TABLERO_3D.md b/docs/PLAN_TABLERO_3D.md
+-new file mode 100644
+-index 0000000..e8c9b65
+---- /dev/null
+-+++ b/docs/PLAN_TABLERO_3D.md
+-@@ -0,0 +1,132 @@
+-+# AEVUM · Plan del Tablero 3D (documento de traspaso)
+-+
+-+Este documento resume todo lo acordado para migrar el tablero 2D (GUI) de AEVUM a 3D.
+-+Sirve para retomar el trabajo en un chat nuevo sin perder contexto.
+-+
+-+---
+-+
+-+## 0. Prompt para retomar en un chat nuevo
+-+
+-+> Estoy migrando el tablero de mi juego de cartas AEVUM (Roblox, Rojo) de GUI 2D a 3D.
+-+> Repo público: https://github.com/Second0709/AEVUM-TESTING-1 (clónalo con git, la web de GitHub bloquea lectura directa).
+-+> Lee `docs/PLAN_TABLERO_3D.md` del repo: contiene las decisiones, la arquitectura y las fases.
+-+> Estamos en la **Fase N**. Continúa desde ahí y respeta las convenciones del repo.
+-+
+-+---
+-+
+-+## 1. Hechos verificados del repo
+-+
+-+- **Servidor autoritativo.** `Match.luau` decide todo. El cliente solo dibuja el `view` que recibe por `Remotes.State` y envía acciones por `Remotes.Action`.
+-+- **El `view` ya viene filtrado por jugador:** `view.me` (completo) y `view.opp` (banca boca abajo: `{uid, faceDown=true}`, combate con `cardId`).
+-+- **Casillas vacías = `false`**, no `nil`.
+-+- **Banca = cartas boca abajo** (criaturas y hechizos). `PlayCard` las coloca ahí; el `slot` es opcional (si no se manda, el servidor usa la primera libre). La UI actual **no** envía slot.
+-+- **Combate = cartas reveladas.** Una criatura de Banca pasa a Combate cuando se declara el ataque (`DeclareAttack`), y en ese momento se revela. Los hechizos se activan desde la Banca (`ActivateSlow` / `ActivateFast`).
+-+- **Evolución:** `Evolve { form, target }`, la carta de evolución sale de la mano y apunta a una criatura propia en Combate.
+-+- **Objetivos válidos** vienen de `view.activatable[].targets` con `{side, zone, slot}`; zonas: `Avatar | Combat | Bench | Hand`.
+-+- **Estados de espera** (`view.waiting.kind`): `Actions`, `Response`, `AttackResponse`, `FastWindow`, `AttackDeclare`, `AttackEvolve`, `Block`, `Discard` (verificar si hay más).
+-+- **Ataque en curso:** `view.attack = { attackers, blocks, mode }`.
+-+- **Eventos:** `view.events = { {id, kind} }` (hoy se usan `BlockKill` y `Overkill`). No traen uid/zona/slot.
+-+- **Reglas (Config.Match):** 20 de vida, mazo 40, 5 casillas de Banca, 5 de Combate, mano máx. 8, energía máx. 6, reserva máx. 2, acción 30 s.
+-+- **Las 20 cartas comparten el mismo `art`** (`rbxassetid://125379581550088`).
+-+- **UI actual:** oscura/espacial (`UI/Theme.luau`), diseño horizontal (panel izquierdo 13%, tablero 68%, panel derecho 15%, mano abajo).
+-+- **Lobby:** "Jugar contra el Bot" y "Buscar rival (2 jugadores)". El bot se activa con `ServerConfig.Bot.Enabled`.
+-+
+-+---
+-+
+-+## 2. Decisiones tomadas
+-+
+-+| Tema | Decisión |
+-+|---|---|
+-+| Estilo visual | Mezcla de **templo antiguo (Yu-Gi-Oh! Master Duel)** y **tecnología antigua**: piedra oscura, oro/bronce envejecido, surcos tipo circuito, glifos de neón. |
+-+| Colores de bando | Los del `Theme` actual: cian = jugador, rosa/magenta = rival. Piedra y oro son neutros. |
+-+| Personaje de Roblox | **Oculto.** Solo tablero y cartas. |
+-+| Plataformas | **Móvil y PC por igual.** |
+-+| Dónde se construye | **En el cliente.** Cada jugador se ve siempre en +Z, el rival en -Z. |
+-+| Interfaz 2D | `Hand`, `LeftPanel`, `RightPanel`, banners y toasts se mantienen en 2D por ahora. |
+-+| Tablero 2D actual | Se conserva como alternativa conmutable (bandera en Config). |
+-+| Jugar carta | Se selecciona desde la mano (referencia: **MTG Arena**). La carta va a la Banca; casilla automática por defecto. |
+-+| Avatar | Un **cristal** a cada lado del tablero: muestra la vida y recibe el toque (objetivo `Avatar`). |
+-+| Mano | **2D** mientras se elige; la carta pasa a **3D** al colocarse en la mesa. |
+-+| Arte | **Arte por carta** (lo produce el equipo, necesita tiempo). Mientras tanto, imagen provisional. |
+-+| Calidad gráfica | **Opción manual** para dispositivos de bajo rendimiento. |
+-+| Sonido y partículas | **Sí**, referencias: Yu-Gi-Oh! Duel Links, MTG Arena y Legends of Runeterra. |
+-+| Primer paso técnico | Construir con `Parts` y materiales de Roblox. Mallas de Blender solo si hace falta más adelante. |
+-+
+-+---
+-+
+-+## 3. Detalles aún abiertos (no bloquean la Fase 1)
+-+
+-+1. **Confirmación al jugar:** ¿un toque sobre la carta seleccionada la juega, o se mantiene un botón de confirmar? *Propuesta:* seleccionar → las casillas libres de Banca se iluminan → tocar la casilla (o tocar de nuevo la carta para casilla automática).
+-+2. **Especificación del arte:** *Propuesta:* ilustración sin texto, relación 4:3, 1024×768 px, PNG. El nombre, ATK, VIDA y costo los dibuja el juego. Mientras no esté el arte, `CardDatabase.art` sigue con la imagen provisional.
+-+3. **Origen de los sonidos:** los audios de Roblox deben subirse o usar los autorizados. Hay que definir qué eventos llevan sonido (jugar, revelar, ataque, daño, muerte, curación, escudo, turno).
+-+4. **Menú de ajustes:** calidad gráfica manual y volumen. *Propuesta:* un botón de engranaje 2D en la partida y en el lobby. Guardar la preferencia en el cliente primero; en `PlayerDataService` más adelante.
+-+5. **Qué cambia en calidad baja:** *Propuesta:* sin partículas pesadas, sin luces dinámicas extra, sin sombras, glifos sin brillo animado.
+-+6. **Mano del rival:** `view.opp.hand` es solo un número. *Propuesta:* mostrar reversos de carta en el borde del rival.
+-+7. **Cementerio:** `graveyard` es una lista. *Propuesta:* tocar el montón abre una lista 2D para verlo.
+-+8. **Flechas de objetivo** (como Arena o Runeterra) al elegir objetivo de hechizo o bloqueo: *Propuesta:* dejarlas para la Fase 5.
+-+9. **Fin de partida y banners:** se mantienen en 2D (`Overlay`, `Banner`).
+-+
+-+---
+-+
+-+## 4. Arquitectura propuesta
+-+
+-+Carpeta nueva: `src/StarterPlayerScripts/AEVUM/UI3D/`
+-+
+-+| Módulo | Responsabilidad |
+-+|---|---|
+-+| `Layout.luau` | Funciones puras con las posiciones de casillas, vitales, mazos, etc. Sin instancias, así se puede probar con `luau` CLI. |
+-+| `BoardBuilder.luau` | Construye una sola vez el templo estático (base, nichos, glifos, orbe, luces). |
+-+| `CardView.luau` | Fábrica y reutilización (pool) de cartas 3D: frente, reverso, ATK/VIDA/costo, estados (escudo, aturdida, reflejo). |
+-+| `Board3D.luau` | **Reconciliador:** compara el `view` nuevo con lo que hay en escena (por `uid`) y crea, mueve o elimina cartas. Misma forma que `Board.luau`: `Board3D.create(ctx)` devuelve la función de render. |
+-+| `CameraRig.luau` | Cámara `Scriptable` adaptable a la proporción de pantalla (móvil/PC). |
+-+| `Input3D.luau` | Un solo sistema para toque y ratón (raycast), con zonas de toque generosas. Llama a los callbacks existentes: `onMyCombat`, `onMyBench`, `onOppCombat`, `onOppBench`. |
+-+| `Fx.luau` (Fase 4+) | Animaciones y partículas a partir de eventos. |
+-+
+-+Cambios fuera de `UI3D/`:
+-+- `Main.server.luau`: `Players.CharacterAutoLoads = false`.
+-+- `Config.luau`: bandera `Config.Client = { Board3D = true }` (o similar).
+-+- `AevumClient.client.luau`: elegir entre `BoardUI` y `Board3D`; hacer transparente el fondo de `gameFrame` cuando el 3D está activo.
+-+- `Match.luau` (`emit`): añadir `uid`, zona y slot a los eventos (Fase 4).
+-+
+-+---
+-+
+-+## 5. Fases
+-+
+-+1. **Base:** ocultar personaje, cámara adaptable, tablero estático del templo (piedra, oro, glifos, orbe). Sin lógica.
+-+2. **Conexión al `view`:** cartas en Banca/Combate, rival boca abajo, vitales, mazos, cementerios, orbe según `attackerIdx`. Render por `uid`.
+-+3. **Interacción:** toque/clic en casillas y avatares, resaltado de objetivos, atacantes y bloqueos, usando los callbacks existentes.
+-+4. **Eventos y animaciones:** ampliar `emit()` y animar jugar, revelar al atacar, bloquear, daño, muerte, curación, escudo.
+-+5. **Efectos y pulido:** partículas por tipo de efecto, sonidos, arte por carta, niveles de calidad.
+-+
+-+Criterio de "terminado" de cada fase: se puede jugar una partida completa contra el bot sin errores en la consola.
+-+
+-+---
+-+
+-+## 6. Convenciones del repo (respetar)
+-+
+-+- Cabecera `--!nonstrict` y comentario `-- AEVUM · <descripción> (vX.Y.Z)`.
+-+- Indentación con **tabs**.
+-+- Comentarios en español.
+-+- Los datos compartidos (cartas, reglas) viven en `ReplicatedStorage/AEVUM`; lo exclusivo del servidor en `ServerScriptService/AEVUM`.
+-+- Cada módulo nuevo necesita su `.meta.json` solo si el repo lo usa para ese tipo de archivo (los `.luau` de UI actuales no lo tienen).
+-+- Mantener los nombres de acciones y la validación de `Validator.luau`: no inventar acciones nuevas sin pasar por ahí.
+-+
+-+---
+-+
+-+## 7. Flujo de trabajo y pruebas
+-+
+-+- **Rama de trabajo: `feature/tablero-3d`.** Nada de esto se sube a `main`. Todo el trabajo del tablero 3D va en esa rama y se fusiona a `main` solo cuando esté probado.
+-+- Claude **no puede ejecutar Roblox Studio ni subir al repo.** Entrega cada fase como un parche de git (`git format-patch`) que se aplica en la rama con `git am`, o como archivos con la misma estructura de carpetas del repo. Rojo (`rojo serve`) sincroniza con Studio.
+-+- Se prueba en Studio contra el bot (`ServerConfig.Bot.Enabled = true`).
+-+- Ante un fallo, enviar el **mensaje de error completo de la Output** (con la línea) y, si es visual, una captura.
+-+- La lógica pura (`Layout.luau`) se puede cubrir con pruebas en `tests/`, como `Match.spec.luau`.
+-+
+-+---
+-+
+-+## 8. Riesgos
+-+
+-+- **Rendimiento en móvil:** muchas partes, luces y partículas. Mitigación: pool de cartas, pocas luces, niveles de calidad.
+-+- **Texto ilegible en cartas 3D pequeñas:** mostrar solo lo esencial en la carta y dejar el detalle en el panel de inspección.
+-+- **Conflicto de toques** entre GUI 2D y raycast 3D: la GUI debe consumir el toque primero (`GuiService`/`gameProcessed`).
+-+- **Reconstrucción total del `render`:** el 2D borra y recrea todo en cada estado; el 3D no puede hacerlo o no habrá animaciones.
+-+- **Eventos sin datos** (`id` y `kind` solamente): hasta ampliarlos, no se puede animar sobre una carta concreta.
+-diff --git a/src/ReplicatedStorage/AEVUM/Config.luau b/src/ReplicatedStorage/AEVUM/Config.luau
+-index 032c450..3d06da8 100644
+---- a/src/ReplicatedStorage/AEVUM/Config.luau
+-+++ b/src/ReplicatedStorage/AEVUM/Config.luau
+-@@ -34,6 +34,12 @@ Config.Match = {
+- 	AutoPassWhenNoActions = true,
+- }
+- 
+-+-- Opciones del cliente (tablero 3D). Board3D = false vuelve al tablero 2D clásico.
+-+Config.Client = {
+-+	Board3D = true,
+-+	Quality = "High", -- "High" | "Low" (Low: sin brillos animados, sin luces ni sombras)
+-+}
+-+
+- Config.Sounds = {
+- 	Select = "rbxassetid://74677332039786",
+- 	Deselect = "rbxassetid://95511902174465",
+-diff --git a/src/ServerScriptService/AEVUM/Main.server.luau b/src/ServerScriptService/AEVUM/Main.server.luau
+-index e349a07..0b3cecf 100644
+---- a/src/ServerScriptService/AEVUM/Main.server.luau
+-+++ b/src/ServerScriptService/AEVUM/Main.server.luau
+-@@ -3,6 +3,7 @@
+- 
+- local RS = game:GetService("ReplicatedStorage")
+- local RunService = game:GetService("RunService")
+-+local Players = game:GetService("Players")
+- local Shared = RS:WaitForChild("AEVUM")
+- local Config = require(Shared:WaitForChild("Config"))
+- local Cards = require(Shared:WaitForChild("CardDatabase"))
+-@@ -14,6 +15,14 @@ local PlayerDataService = require(script.Parent.PlayerDataService)
+- 
+- Cards.validate(Config.Match.MaxEnergy)
+- 
+-+-- Tablero 3D: no hay personaje, solo tablero y cartas (el cliente controla la cámara).
+-+if Config.Client and Config.Client.Board3D then
+-+	Players.CharacterAutoLoads = false
+-+	for _, plr in ipairs(Players:GetPlayers()) do
+-+		if plr.Character then plr.Character:Destroy() end
+-+	end
+-+end
+-+
+- PlayerDataService.start()
+- InventoryService.setProvider(PlayerDataService.getProvider())
+- 
+-diff --git a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+-index dedce8a..bf96840 100644
+---- a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+-+++ b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+-@@ -10,7 +10,10 @@ local player = Players.LocalPlayer
+- local Shared = RS:WaitForChild("AEVUM")
+- local Cards = require(Shared:WaitForChild("CardDatabase")).Data
+- local Remotes = Shared:WaitForChild("Remotes")
+--local SoundCfg = require(Shared:WaitForChild("Config")).Sounds
+-+local Cfg = require(Shared:WaitForChild("Config"))
+-+local SoundCfg = Cfg.Sounds
+-+local ClientCfg = Cfg.Client or {}
+-+local use3D = ClientCfg.Board3D == true
+- 
+- local UI = script.Parent:WaitForChild("UI")
+- local C = require(UI:WaitForChild("Theme"))
+-@@ -23,6 +26,7 @@ local LobbyUI = require(UI:WaitForChild("Lobby"))
+- local PauseUI = require(UI:WaitForChild("Pause"))
+- local BannerUI = require(UI:WaitForChild("Banner"))
+- local OverlayUI = require(UI:WaitForChild("Overlay"))
+-+local Board3DUI = use3D and require(script.Parent:WaitForChild("UI3D"):WaitForChild("Board3D")) or nil
+- local new, clear = Widgets.new, Widgets.clear
+- local label, button = Widgets.label, Widgets.button
+- local playSound = require(UI:WaitForChild("Sounds")).create(SoundCfg)
+-@@ -31,13 +35,17 @@ local gui = new("ScreenGui", { Name = "AevumGui", ResetOnSpawn = false, IgnoreGu
+- 
+- local lobby, lobbyStatus = LobbyUI.create(gui, C, Widgets, Remotes)
+- 
+--local gameFrame = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg, Visible = false }, gui)
+-+-- Con el tablero 3D el fondo es transparente: se ve la escena detrás de los paneles 2D
+-+local gameFrame = new("Frame", { Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = C.bg,
+-+	BackgroundTransparency = use3D and 1 or 0, Visible = false }, gui)
+- new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(30, 16, 66), C.bg), Rotation = 90 }, gameFrame)
+-+local starsLayer = new("Frame", { Name = "Stars", Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1,
+-+	Visible = not use3D }, gameFrame)
+- local stars = Random.new(7)
+- for _ = 1, 70 do
+- 	local size = stars:NextInteger(1, 3)
+- 	new("Frame", { Size = UDim2.fromOffset(size, size), Position = UDim2.fromScale(stars:NextNumber(), stars:NextNumber()),
+--		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, gameFrame)
+-+		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, starsLayer)
+- end
+- 
+- local topBar = new("TextLabel", { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(1, 0, 0.065, 0),
+-@@ -55,7 +63,7 @@ new("UIPadding", { PaddingTop = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), Pa
+- 	PaddingBottom = UDim.new(0, 6) }, left)
+- 
+- local board = new("Frame", { Position = UDim2.new(0.15, 0, 0.08, 0), Size = UDim2.new(0.68, 0, 0.68, 0),
+--	BackgroundTransparency = 1 }, gameFrame)
+-+	BackgroundTransparency = 1, Visible = not use3D }, gameFrame)
+- new("UIListLayout", { Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder }, board)
+- 
+- local handFrame = new("Frame", { Position = UDim2.new(0.15, 0, 0.78, 0), Size = UDim2.new(0.68, 0, 0.21, 0),
+-@@ -329,6 +337,12 @@ local renderBoard = BoardUI.create({
+- 	onOppBench = onOppBench, onOppCombat = onOppCombat, onMyCombat = onMyCombat, onMyBench = onMyBench,
+- 	getState = getPanelState,
+- })
+-+-- Tablero 3D (Fase 1: escena estática y cámara). Se muestra desde el lobby como fondo.
+-+local renderBoard3D, show3D = nil, nil
+-+if use3D then
+-+	renderBoard3D, show3D = Board3DUI.create({ quality = ClientCfg.Quality })
+-+	show3D()
+-+end
+- local renderHand = HandUI.create({
+- 	parent = handFrame, clear = clear, theme = C, cards = Cards, cardBtn = cardBtn, cardText = cardText,
+- 	isTarget = isTarget, onHand = onHand, getState = getPanelState,
+-@@ -354,7 +368,7 @@ render = function()
+- 		lastKey = key
+- 		sel, targetMode, attackSel, blockPick, blockPairs = nil, nil, {}, nil, {}
+- 	end
+--	renderBoard()
+-+	if use3D then renderBoard3D(getPanelState()) else renderBoard() end
+- 	renderHand()
+- 	renderLeft()
+- 	renderRight()
+-diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+-new file mode 100644
+-index 0000000..72fa941
+---- /dev/null
+-+++ b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+-@@ -0,0 +1,70 @@
+-+--!nonstrict
+-+-- AEVUM · Tablero 3D: reconciliador (v1.3.0)
+-+-- Misma forma que UI/Board.luau: Board3D.create(ctx) devuelve la función de render.
+-+-- Fase 1: solo escena estática + cámara. `render` aún no dibuja cartas (Fase 2).
+-+--
+-+-- ctx (todo opcional):
+-+--   origin  Vector3  centro de la mesa en el Workspace (por defecto muy por encima del mapa)
+-+--   quality "High" | "Low"
+-+--
+-+-- Devuelve: render(state), show(), hide()
+-+
+-+local TweenService = game:GetService("TweenService")
+-+
+-+local BoardBuilder = require(script.Parent.BoardBuilder)
+-+local CameraRig = require(script.Parent.CameraRig)
+-+
+-+local Board3D = {}
+-+
+-+local DEFAULT_ORIGIN = Vector3.new(0, 500, 0) -- lejos de cualquier Baseplate del lugar
+-+
+-+function Board3D.create(ctx)
+-+	ctx = ctx or {}
+-+	local origin = ctx.origin or DEFAULT_ORIGIN
+-+	local quality = ctx.quality or "High"
+-+
+-+	local scene -- { folder, glow, refs } (se construye una sola vez)
+-+	local stopCamera, restoreLighting
+-+	local pulses = {}
+-+	local visible = false
+-+
+-+	local function show()
+-+		if visible then return end
+-+		visible = true
+-+		if not scene then scene = BoardBuilder.build(origin, quality) end
+-+		scene.folder.Parent = workspace
+-+		restoreLighting = BoardBuilder.applyLighting(quality)
+-+		stopCamera = CameraRig.start(origin)
+-+		-- Brillo suave de los glifos (se omite en calidad baja)
+-+		if quality ~= "Low" then
+-+			local info = TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+-+			for _, p in ipairs(scene.glow) do
+-+				local tween = TweenService:Create(p, info, { Transparency = 0.45 })
+-+				tween:Play()
+-+				pulses[#pulses + 1] = tween
+-+			end
+-+		end
+-+	end
+-+
+-+	local function hide()
+-+		if not visible then return end
+-+		visible = false
+-+		for _, tween in ipairs(pulses) do tween:Cancel() end
+-+		pulses = {}
+-+		if scene then
+-+			for _, p in ipairs(scene.glow) do p.Transparency = p.Name:find("Cristal") and 0.1 or 0 end
+-+			scene.folder.Parent = nil
+-+		end
+-+		if stopCamera then stopCamera() stopCamera = nil end
+-+		if restoreLighting then restoreLighting() restoreLighting = nil end
+-+	end
+-+
+-+	-- Fase 2: aquí se compara state.view con lo que hay en escena (por uid)
+-+	local function render(state)
+-+		if not visible then return end
+-+	end
+-+
+-+	return render, show, hide
+-+end
+-+
+-+return Board3D
+-diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+-new file mode 100644
+-index 0000000..b3b8a33
+---- /dev/null
+-+++ b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+-@@ -0,0 +1,233 @@
+-+--!nonstrict
+-+-- AEVUM · Tablero 3D: templo estático (v1.3.0)
+-+-- Construye UNA sola vez la mesa de piedra y oro con surcos y glifos de neón.
+-+-- No conoce el estado de la partida: solo geometría. Las cartas las pone Board3D (Fase 2).
+-+
+-+local Lighting = game:GetService("Lighting")
+-+
+-+local Layout = require(script.Parent.Layout)
+-+
+-+local BoardBuilder = {}
+-+
+-+local PAL = {
+-+	stone = Color3.fromRGB(40, 38, 48),
+-+	tier2 = Color3.fromRGB(28, 26, 34),
+-+	tier3 = Color3.fromRGB(21, 20, 27),
+-+	floor = Color3.fromRGB(13, 12, 18),
+-+	slot = Color3.fromRGB(30, 29, 38),
+-+	gold = Color3.fromRGB(176, 138, 66),
+-+	glyph = Color3.fromRGB(255, 196, 110), -- neón neutro (ámbar)
+-+	Self = Color3.fromRGB(77, 225, 255), -- cian = jugador
+-+	Enemy = Color3.fromRGB(255, 90, 170), -- rosa = rival
+-+}
+-+BoardBuilder.Palette = PAL
+-+
+-+local SLOTS = 5
+-+local CYL = CFrame.Angles(0, 0, math.pi / 2) -- un cilindro de Roblox tiene el eje en X: lo giramos para que mire hacia arriba
+-+
+-+-- Construye el templo. origin: Vector3 del centro de la mesa. quality: "High" | "Low".
+-+-- Devuelve { folder, glow, refs }:
+-+--   glow: partes de neón que pueden pulsar (solo calidad alta)
+-+--   refs: partes con nombre que usarán las fases siguientes (casillas, cristales, orbe)
+-+function BoardBuilder.build(origin, quality)
+-+	local high = quality ~= "Low"
+-+	local folder = Instance.new("Folder")
+-+	folder.Name = "AevumBoard3D"
+-+	local glow = {}
+-+	local refs = { slots = {}, vitals = {}, decks = {}, graveyards = {} }
+-+
+-+	-- Crea una pieza anclada. pos es relativa al centro de la mesa.
+-+	local function part(name, size, pos, color, material, opts)
+-+		opts = opts or {}
+-+		local p = Instance.new("Part")
+-+		p.Name = name
+-+		p.Anchored = true
+-+		p.CanCollide = false
+-+		p.CanTouch = false
+-+		p.CanQuery = false -- decorado: no estorba al raycast de la Fase 3
+-+		p.Size = size
+-+		p.Color = color
+-+		p.Material = material or Enum.Material.Slate
+-+		p.TopSurface = Enum.SurfaceType.Smooth
+-+		p.BottomSurface = Enum.SurfaceType.Smooth
+-+		p.CastShadow = high and math.max(size.X, size.Y, size.Z) >= 2
+-+		if opts.transparency then p.Transparency = opts.transparency end
+-+		if opts.shape then p.Shape = opts.shape end
+-+		p.CFrame = CFrame.new(origin + pos) * (opts.rot or CFrame.new())
+-+		if opts.glow then glow[#glow + 1] = p end
+-+		p.Parent = folder
+-+		return p
+-+	end
+-+
+-+	local function light(parent, color, range, brightness)
+-+		if not high then return end
+-+		local l = Instance.new("PointLight")
+-+		l.Color = color
+-+		l.Range = range
+-+		l.Brightness = brightness
+-+		l.Shadows = false
+-+		l.Parent = parent
+-+	end
+-+
+-+	local half = Layout.halfExtents()
+-+	local hx, hz = half.x, half.z
+-+
+-+	-- ── Suelo y escalones (ziggurat) ───────────────────────────────────────
+-+	part("Suelo", Vector3.new(600, 1, 600), Vector3.new(0, -5, 0), PAL.floor, Enum.Material.Basalt)
+-+	part("Escalon3", Vector3.new(hx * 2 + 12, 1.5, hz * 2 + 12), Vector3.new(0, -3.75, 0), PAL.tier3, Enum.Material.Basalt)
+-+	part("Escalon2", Vector3.new(hx * 2 + 6, 1.5, hz * 2 + 6), Vector3.new(0, -2.25, 0), PAL.tier2, Enum.Material.Basalt)
+-+	part("Mesa", Vector3.new(hx * 2, 1.5, hz * 2), Vector3.new(0, -0.75, 0), PAL.stone, Enum.Material.Slate)
+-+
+-+	-- ── Marco de oro envejecido ────────────────────────────────────────────
+-+	local METAL = Enum.Material.Metal
+-+	part("MarcoN", Vector3.new(hx * 2 + 1.6, 0.5, 0.8), Vector3.new(0, 0.25, -(hz + 0.4)), PAL.gold, METAL)
+-+	part("MarcoS", Vector3.new(hx * 2 + 1.6, 0.5, 0.8), Vector3.new(0, 0.25, hz + 0.4), PAL.gold, METAL)
+-+	part("MarcoW", Vector3.new(0.8, 0.5, hz * 2), Vector3.new(-(hx + 0.4), 0.25, 0), PAL.gold, METAL)
+-+	part("MarcoE", Vector3.new(0.8, 0.5, hz * 2), Vector3.new(hx + 0.4, 0.25, 0), PAL.gold, METAL)
+-+
+-+	-- ── Nicho rectangular: placa oscura + 4 bordes de oro + franja de neón ──
+-+	-- stripDz: desplazamiento en Z de la franja de neón respecto al centro del nicho.
+-+	local function socket(name, cx, cz, color, stripDz)
+-+		local W, D = 4.8, 6.4
+-+		local base = part(name, Vector3.new(4.5, 0.1, 6.1), Vector3.new(cx, 0.05, cz), PAL.slot, Enum.Material.Basalt)
+-+		part(name .. "_BordeN", Vector3.new(W, 0.25, 0.3), Vector3.new(cx, 0.125, cz - D / 2 + 0.15), PAL.gold, METAL)
+-+		part(name .. "_BordeS", Vector3.new(W, 0.25, 0.3), Vector3.new(cx, 0.125, cz + D / 2 - 0.15), PAL.gold, METAL)
+-+		part(name .. "_BordeW", Vector3.new(0.3, 0.25, D - 0.6), Vector3.new(cx - W / 2 + 0.15, 0.125, cz), PAL.gold, METAL)
+-+		part(name .. "_BordeE", Vector3.new(0.3, 0.25, D - 0.6), Vector3.new(cx + W / 2 - 0.15, 0.125, cz), PAL.gold, METAL)
+-+		part(name .. "_Glifo", Vector3.new(3, 0.06, 0.16), Vector3.new(cx, 0.12, cz + stripDz), color, Enum.Material.Neon)
+-+		return base
+-+	end
+-+
+-+	-- ── Casillas de Combate y Banca (ambos bandos) ─────────────────────────
+-+	for _, side in ipairs({ "Self", "Enemy" }) do
+-+		local sgn = side == "Self" and 1 or -1
+-+		for _, zone in ipairs({ "Combat", "Bench" }) do
+-+			-- Combate: la franja mira al centro. Banca: mira al borde exterior.
+-+			local dz = (zone == "Combat" and -sgn or sgn) * 2.7
+-+			for i = 1, SLOTS do
+-+				local p = Layout.slot(side, zone, i, SLOTS)
+-+				local name = ("Casilla_%s_%s_%d"):format(side, zone, i)
+-+				refs.slots[("%s:%s:%d"):format(side, zone, i)] = socket(name, p.x, p.z, PAL[side], dz)
+-+			end
+-+		end
+-+	end
+-+
+-+	-- ── Surcos tipo circuito ───────────────────────────────────────────────
+-+	local NEON = Enum.Material.Neon
+-+	-- Franja central: surco horizontal a ambos lados del orbe, con nodos
+-+	for _, sx in ipairs({ -1, 1 }) do
+-+		local len = hx - 2 - 2.6
+-+		part("Surco", Vector3.new(len, 0.05, 0.14), Vector3.new(sx * (2.6 + len / 2), 0.03, 0), PAL.glyph, NEON, { glow = true })
+-+		for _, nx in ipairs({ 6, 11, 16 }) do
+-+			part("Nodo", Vector3.new(0.5, 0.1, 0.5), Vector3.new(sx * nx, 0.05, 0), PAL.glyph, NEON, { glow = true })
+-+		end
+-+		for _, sz in ipairs({ -1, 1 }) do
+-+			part("SurcoFino", Vector3.new(5.6, 0.05, 0.1), Vector3.new(sx * 6.2, 0.03, sz * 1.3), PAL.glyph, NEON)
+-+		end
+-+	end
+-+	-- Surcos de cada bando entre Combate y Banca: enlazan el cristal con las filas
+-+	local channelZ = (Layout.ROW_COMBAT + 3.2 + Layout.ROW_BENCH - 3.2) / 2
+-+	local x0, x1 = -(Layout.SIDE_X - 2), Layout.slotX(SLOTS, SLOTS) + 2.4
+-+	for _, side in ipairs({ "Self", "Enemy" }) do
+-+		local sgn = side == "Self" and 1 or -1
+-+		part("Canal_" .. side, Vector3.new(x1 - x0, 0.05, 0.14), Vector3.new((x0 + x1) / 2, 0.03, sgn * channelZ), PAL[side], NEON)
+-+	end
+-+
+-+	-- ── Orbe central (sobre un sello de dos anillos) ───────────────────────
+-+	part("SelloAnillo", Vector3.new(0.06, 4.4, 4.4), Vector3.new(0, 0.04, 0), PAL.glyph, NEON, { rot = CYL, glow = true })
+-+	part("SelloBase", Vector3.new(0.06, 4.0, 4.0), Vector3.new(0, 0.07, 0), PAL.slot, Enum.Material.Basalt, { rot = CYL })
+-+	part("SelloRuna", Vector3.new(0.06, 2.8, 2.8), Vector3.new(0, 0.1, 0), PAL.glyph, NEON, { rot = CYL, glow = true })
+-+	part("SelloNucleo", Vector3.new(0.06, 2.4, 2.4), Vector3.new(0, 0.13, 0), PAL.slot, Enum.Material.Basalt, { rot = CYL })
+-+	local orb = part("Orbe", Vector3.new(1.6, 1.6, 1.6), Vector3.new(0, Layout.ORB_Y, 0), PAL.glyph, NEON,
+-+		{ shape = Enum.PartType.Ball, glow = true })
+-+	light(orb, PAL.glyph, 18, 1.4)
+-+	refs.orb = orb
+-+
+-+	-- ── Columna lateral: cristal de vida, mazo y cementerio de cada bando ──
+-+	for _, side in ipairs({ "Self", "Enemy" }) do
+-+		local sgn = side == "Self" and 1 or -1
+-+		local color = PAL[side]
+-+
+-+		local v = Layout.vital(side)
+-+		part("CristalBase_" .. side, Vector3.new(0.4, 4.4, 4.4), Vector3.new(v.x, 0.2, v.z), PAL.gold, METAL, { rot = CYL })
+-+		part("CristalNucleo_" .. side, Vector3.new(0.34, 3.8, 3.8), Vector3.new(v.x, 0.17, v.z), PAL.slot, Enum.Material.Basalt, { rot = CYL })
+-+		local crystal = part("Cristal_" .. side, Vector3.new(1.6, 1.6, 1.6), Vector3.new(v.x, 2.6, v.z), color, NEON,
+-+			{ transparency = 0.1, rot = CFrame.Angles(math.rad(45), math.rad(45), 0), glow = true })
+-+		light(crystal, color, 12, 1.2)
+-+		refs.vitals[side] = crystal
+-+
+-+		local d = Layout.deck(side)
+-+		socket("Mazo_" .. side, d.x, d.z, color, sgn * 2.7)
+-+		refs.decks[side] = part("MazoPila_" .. side, Vector3.new(4, 0.5, 5.6), Vector3.new(d.x, 0.4, d.z),
+-+			Color3.fromRGB(46, 40, 62), METAL)
+-+
+-+		local g = Layout.graveyard(side)
+-+		refs.graveyards[side] = socket("Cementerio_" .. side, g.x, g.z, color, -sgn * 2.7)
+-+	end
+-+
+-+	-- ── Pilares con brasero en las cuatro esquinas ─────────────────────────
+-+	for _, sx in ipairs({ -1, 1 }) do
+-+		for _, sz in ipairs({ -1, 1 }) do
+-+			local px, pz = sx * (hx + 1.2), sz * (hz + 1.2)
+-+			local color = sz == 1 and PAL.Self or PAL.Enemy
+-+			part("Pilar", Vector3.new(1.8, 6.5, 1.8), Vector3.new(px, 1.75, pz), PAL.tier2, Enum.Material.Basalt)
+-+			part("PilarCapitel", Vector3.new(2.4, 0.4, 2.4), Vector3.new(px, 5.2, pz), PAL.gold, METAL)
+-+			local flame = part("PilarLlama", Vector3.new(1, 1, 1), Vector3.new(px, 6, pz), color, NEON,
+-+				{ shape = Enum.PartType.Ball, glow = true })
+-+			light(flame, color, 14, 1)
+-+		end
+-+	end
+-+
+-+	return { folder = folder, glow = glow, refs = refs }
+-+end
+-+
+-+-- Atmósfera oscura de templo. Solo afecta a este cliente.
+-+-- Devuelve una función que restaura todo lo que cambió.
+-+function BoardBuilder.applyLighting(quality)
+-+	local high = quality ~= "Low"
+-+	local saved = {
+-+		Ambient = Lighting.Ambient,
+-+		OutdoorAmbient = Lighting.OutdoorAmbient,
+-+		Brightness = Lighting.Brightness,
+-+		ClockTime = Lighting.ClockTime,
+-+		ColorShift_Top = Lighting.ColorShift_Top,
+-+		GlobalShadows = Lighting.GlobalShadows,
+-+		ExposureCompensation = Lighting.ExposureCompensation,
+-+	}
+-+	Lighting.Ambient = Color3.fromRGB(52, 48, 70)
+-+	Lighting.OutdoorAmbient = Color3.fromRGB(60, 56, 84)
+-+	Lighting.Brightness = 2
+-+	Lighting.ClockTime = 16.5 -- sol bajo: luz rasante que marca el relieve de la piedra
+-+	Lighting.ColorShift_Top = Color3.fromRGB(255, 205, 150)
+-+	Lighting.GlobalShadows = high
+-+	Lighting.ExposureCompensation = 0
+-+
+-+	local extras = {}
+-+	local atmosphere = Instance.new("Atmosphere")
+-+	atmosphere.Name = "AevumAtmosphere"
+-+	atmosphere.Density = 0.25
+-+	atmosphere.Offset = 0
+-+	atmosphere.Color = Color3.fromRGB(34, 28, 56)
+-+	atmosphere.Decay = Color3.fromRGB(14, 12, 28)
+-+	atmosphere.Glare = 0
+-+	atmosphere.Haze = 0
+-+	atmosphere.Parent = Lighting
+-+	extras[#extras + 1] = atmosphere
+-+
+-+	if high then
+-+		local bloom = Instance.new("BloomEffect")
+-+		bloom.Name = "AevumBloom"
+-+		bloom.Intensity = 0.5
+-+		bloom.Size = 24
+-+		bloom.Threshold = 1
+-+		bloom.Parent = Lighting
+-+		extras[#extras + 1] = bloom
+-+	end
+-+
+-+	return function()
+-+		for k, v in pairs(saved) do Lighting[k] = v end
+-+		for _, e in ipairs(extras) do e:Destroy() end
+-+	end
+-+end
+-+
+-+return BoardBuilder
+-diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau b/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau
+-new file mode 100644
+-index 0000000..1cdd6fd
+---- /dev/null
+-+++ b/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau
+-@@ -0,0 +1,67 @@
+-+--!nonstrict
+-+-- AEVUM · Tablero 3D: cámara adaptable (v1.3.0)
+-+-- Cámara Scriptable fija sobre el lado del jugador local (+Z), inclinada hacia la mesa.
+-+-- La distancia se recalcula con la proporción de pantalla, así sirve en móvil y PC.
+-+
+-+local Layout = require(script.Parent.Layout)
+-+
+-+local CameraRig = {}
+-+
+-+CameraRig.FOV = 45 -- FOV vertical (grados)
+-+CameraRig.PITCH = 58 -- inclinación bajo el horizonte (grados)
+-+
+-+-- Toma el control de la cámara apuntando a `center` (Vector3).
+-+-- Devuelve una función `stop` que la devuelve a como estaba.
+-+function CameraRig.start(center)
+-+	local camera = workspace.CurrentCamera
+-+	while not camera do
+-+		task.wait()
+-+		camera = workspace.CurrentCamera
+-+	end
+-+	local previous = { type = camera.CameraType, fov = camera.FieldOfView, cframe = camera.CFrame }
+-+	local conns = {}
+-+
+-+	local function apply()
+-+		camera = workspace.CurrentCamera
+-+		if not camera then return end
+-+		camera.CameraType = Enum.CameraType.Scriptable
+-+		camera.FieldOfView = CameraRig.FOV
+-+		local size = camera.ViewportSize
+-+		local fit = Layout.cameraFit(size.X / math.max(size.Y, 1), CameraRig.FOV, CameraRig.PITCH)
+-+		local pitch = math.rad(CameraRig.PITCH)
+-+		local forward = Vector3.new(0, -math.sin(pitch), -math.cos(pitch)) -- hacia -Z y hacia abajo
+-+		local position = center - forward * fit.distance
+-+		-- Bajamos la mirada `shift` para que la mesa quede centrada en el hueco que dejan los paneles 2D
+-+		camera.CFrame = CFrame.lookAt(position, center) * CFrame.Angles(-fit.shift, 0, 0)
+-+	end
+-+
+-+	local function watch()
+-+		for _, c in ipairs(conns) do c:Disconnect() end
+-+		conns = {}
+-+		if not camera then return end
+-+		conns[#conns + 1] = camera:GetPropertyChangedSignal("ViewportSize"):Connect(apply)
+-+		-- Si algo (otro script, el reaparecer) cambia el tipo de cámara, lo volvemos a forzar
+-+		conns[#conns + 1] = camera:GetPropertyChangedSignal("CameraType"):Connect(function()
+-+			if camera.CameraType ~= Enum.CameraType.Scriptable then apply() end
+-+		end)
+-+	end
+-+
+-+	apply()
+-+	watch()
+-+	local camConn = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+-+		apply()
+-+		watch()
+-+	end)
+-+
+-+	return function()
+-+		camConn:Disconnect()
+-+		for _, c in ipairs(conns) do c:Disconnect() end
+-+		if camera then
+-+			camera.CameraType = previous.type
+-+			camera.FieldOfView = previous.fov
+-+			camera.CFrame = previous.cframe
+-+		end
+-+	end
+-+end
+-+
+-+return CameraRig
+-diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+-new file mode 100644
+-index 0000000..28ade75
+---- /dev/null
+-+++ b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+-@@ -0,0 +1,101 @@
+-+--!nonstrict
+-+-- AEVUM · Tablero 3D: posiciones puras (v1.3.0)
+-+-- Sin instancias ni tipos de Roblox: solo números y tablas, así se puede probar con `luau`.
+-+-- Sistema de coordenadas (relativo al centro del tablero, en studs):
+-+--   +X = derecha de la pantalla · +Z = hacia el jugador local · -Z = hacia el rival · Y = arriba.
+-+-- El jugador local siempre se ve en +Z ("Self"), el rival en -Z ("Enemy").
+-+-- El índice de casilla 1 queda a la izquierda para ambos bandos (igual que el tablero 2D).
+-+
+-+local Layout = {}
+-+
+-+-- Carta tumbada sobre la mesa
+-+Layout.CARD = { w = 4, d = 5.6, h = 0.12 }
+-+
+-+Layout.SLOT_PITCH = 5 -- distancia entre centros de casilla en X
+-+Layout.ROW_COMBAT = 5.6 -- |z| de la fila de Combate
+-+Layout.ROW_BENCH = 12.8 -- |z| de la fila de Banca
+-+Layout.SIDE_X = 17.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
+-+
+-+-- Alturas (Y = 0 es la superficie de la mesa)
+-+Layout.CARD_Y = 0.2 -- centro de una carta tumbada
+-+Layout.HOVER_Y = 3 -- altura de una carta "levantada"
+-+Layout.ORB_Y = 4 -- altura del orbe central
+-+
+-+local function sign(side)
+-+	return side == "Self" and 1 or -1
+-+end
+-+
+-+-- x de la casilla `index` de `count` casillas (centrado en 0)
+-+function Layout.slotX(index, count)
+-+	return (index - (count + 1) / 2) * Layout.SLOT_PITCH
+-+end
+-+
+-+-- Centro de una casilla. side: "Self" | "Enemy" · zone: "Bench" | "Combat"
+-+function Layout.slot(side, zone, index, count)
+-+	count = count or 5
+-+	local row = zone == "Combat" and Layout.ROW_COMBAT or Layout.ROW_BENCH
+-+	return { x = Layout.slotX(index, count), z = sign(side) * row }
+-+end
+-+
+-+-- Cristal de vida del avatar (objetivo "Avatar"): columna izquierda, entre Combate y Banca
+-+function Layout.vital(side)
+-+	return { x = -Layout.SIDE_X, z = sign(side) * (Layout.ROW_COMBAT + Layout.ROW_BENCH) / 2 }
+-+end
+-+
+-+-- Mazo: columna derecha, a la altura de la Banca
+-+function Layout.deck(side)
+-+	return { x = Layout.SIDE_X, z = sign(side) * Layout.ROW_BENCH }
+-+end
+-+
+-+-- Cementerio: columna derecha, a la altura del Combate
+-+function Layout.graveyard(side)
+-+	return { x = Layout.SIDE_X, z = sign(side) * Layout.ROW_COMBAT }
+-+end
+-+
+-+-- Orbe central. attacker: "Self" | "Enemy" | nil (neutro). Se desplaza hacia quien ataca.
+-+function Layout.orb(attacker)
+-+	local z = 0
+-+	if attacker then z = sign(attacker) * 1.2 end
+-+	return { x = 0, z = z }
+-+end
+-+
+-+-- Semi-extensiones de la mesa jugable (sin marco)
+-+function Layout.halfExtents()
+-+	local halfX = Layout.SIDE_X + 3
+-+	local halfZ = Layout.ROW_BENCH + Layout.CARD.d / 2 + 2.5
+-+	return { x = halfX, z = halfZ }
+-+end
+-+
+-+-- Región de pantalla (fracciones 0..1) que dejan libre los paneles 2D.
+-+-- Coincide con el diseño actual: tablero entre el panel izquierdo y el derecho, sobre la mano.
+-+Layout.SCREEN_REGION = { x0 = 0.15, x1 = 0.83, y0 = 0.08, y1 = 0.76 }
+-+
+-+-- Encuadre de cámara para que la mesa quepa en `region` de la pantalla.
+-+-- aspect = ancho/alto de la pantalla · vfovDeg = FOV vertical · pitchDeg = inclinación bajo el horizonte.
+-+-- Devuelve { distance, shift }:
+-+--   distance: distancia cámara→centro (studs)
+-+--   shift: cuánto se baja la mirada (radianes) para que el centro de la mesa caiga en el centro de la región
+-+function Layout.cameraFit(aspect, vfovDeg, pitchDeg, region, margin)
+-+	region = region or Layout.SCREEN_REGION
+-+	margin = margin or 1.12
+-+	local half = Layout.halfExtents()
+-+	local tanV = math.tan(math.rad(vfovDeg) / 2)
+-+	local tanH = tanV * aspect
+-+	local regionW = region.x1 - region.x0
+-+	local regionH = region.y1 - region.y0
+-+	local sinP = math.sin(math.rad(pitchDeg))
+-+
+-+	-- Ancho: la mesa debe caber en regionW del ancho visible a esa distancia
+-+	local dW = half.x / (regionW * tanH)
+-+	-- Alto: la profundidad se proyecta con sin(pitch); sumamos algo por la altura de los pilares
+-+	local dH = (half.z * sinP + 3) / (regionH * tanV)
+-+
+-+	-- Centro de la región en coordenadas NDC (-1..1, +1 = arriba)
+-+	local ndcY = 1 - (region.y0 + region.y1)
+-+	return {
+-+		distance = math.max(dW, dH) * margin,
+-+		shift = math.atan(ndcY * tanV),
+-+	}
+-+end
+-+
+-+return Layout
+-diff --git a/tests/Layout.spec.luau b/tests/Layout.spec.luau
+-new file mode 100644
+-index 0000000..2b286e5
+---- /dev/null
+-+++ b/tests/Layout.spec.luau
+-@@ -0,0 +1,40 @@
+-+local Layout = require("../src/StarterPlayerScripts/AEVUM/UI3D/Layout")
+-+
+-+local function expect(condition, message)
+-+	if not condition then error(message, 2) end
+-+end
+-+local function near(a, b) return math.abs(a - b) < 1e-6 end
+-+
+-+-- Casillas: centradas en X, índice 1 a la izquierda, bandos en lados opuestos de Z
+-+expect(near(Layout.slotX(3, 5), 0), "la casilla central debe estar en x = 0")
+-+expect(near(Layout.slotX(1, 5), -2 * Layout.SLOT_PITCH), "la casilla 1 debe estar a la izquierda")
+-+expect(near(Layout.slotX(5, 5), 2 * Layout.SLOT_PITCH), "la casilla 5 debe estar a la derecha")
+-+expect(Layout.slot("Self", "Combat", 1).z > 0, "el jugador local va en +Z")
+-+expect(Layout.slot("Enemy", "Combat", 1).z < 0, "el rival va en -Z")
+-+expect(near(Layout.slot("Self", "Bench", 2).z, -Layout.slot("Enemy", "Bench", 2).z), "los bandos son simétricos")
+-+expect(math.abs(Layout.slot("Self", "Bench", 1).z) > math.abs(Layout.slot("Self", "Combat", 1).z), "la Banca queda detrás del Combate")
+-+
+-+-- Ninguna casilla se solapa con la columna lateral
+-+local half = Layout.halfExtents()
+-+for i = 1, 5 do
+-+	local x = Layout.slotX(i, 5)
+-+	expect(math.abs(x) + Layout.CARD.w / 2 < Layout.SIDE_X - Layout.CARD.w / 2, "las casillas no deben pisar las columnas laterales")
+-+	expect(math.abs(x) < half.x, "las casillas caben en la mesa")
+-+end
+-+
+-+-- Vitales, mazos y cementerios
+-+expect(Layout.vital("Self").z > 0 and Layout.vital("Enemy").z < 0, "cada cristal en su lado")
+-+expect(Layout.deck("Self").x == Layout.graveyard("Self").x, "mazo y cementerio comparten columna")
+-+expect(Layout.orb("Self").z > 0 and Layout.orb("Enemy").z < 0 and Layout.orb(nil).z == 0, "el orbe se acerca a quien ataca")
+-+
+-+-- Cámara: más estrecha la pantalla => más lejos; siempre distancia positiva
+-+local wide = Layout.cameraFit(16 / 9, 45, 58)
+-+local narrow = Layout.cameraFit(4 / 3, 45, 58)
+-+local portrait = Layout.cameraFit(9 / 16, 45, 58)
+-+expect(wide.distance > 0 and narrow.distance > 0 and portrait.distance > 0, "distancia positiva")
+-+expect(narrow.distance >= wide.distance, "pantalla menos ancha exige más distancia")
+-+expect(portrait.distance > narrow.distance, "en vertical la cámara se aleja más")
+-+expect(wide.shift > 0, "la región libre queda sobre el centro: la mirada baja")
+-+
+-+print("Layout.spec OK · distancia 16:9 =", string.format("%.1f", wide.distance), "· 4:3 =", string.format("%.1f", narrow.distance),
+-+	"· 9:16 =", string.format("%.1f", portrait.distance))
+--- 
+-2.43.0
+-
+diff --git a/docs/PLAN_TABLERO_3D.md b/docs/PLAN_TABLERO_3D.md
+index e7a8e1d..ae113d7 100644
+--- a/docs/PLAN_TABLERO_3D.md
++++ b/docs/PLAN_TABLERO_3D.md
+@@ -1,139 +1,202 @@
+-# AEVUM · Plan del Tablero 3D (documento de traspaso)
++# AEVUM · Plan del Tablero 3D (documento de traspaso · v2)
+ 
+-Este documento resume todo lo acordado para migrar el tablero 2D (GUI) de AEVUM a 3D.
+-Sirve para retomar el trabajo en un chat nuevo sin perder contexto.
++Resume todo lo acordado para migrar el tablero 2D de AEVUM a 3D, el estado real de la rama y lo que sigue.
++Sirve para retomar el trabajo en un chat nuevo sin perder contexto. **Sustituye a la versión anterior del documento.**
+ 
+ ---
+ 
+ ## 0. Prompt para retomar en un chat nuevo
+ 
+ > Estoy migrando el tablero de mi juego de cartas AEVUM (Roblox, Rojo) de GUI 2D a 3D.
+-> Repo público: https://github.com/Second0709/AEVUM-TESTING-1 (clónalo con git, la web de GitHub bloquea lectura directa).
+-> Lee `docs/PLAN_TABLERO_3D.md` del repo: contiene las decisiones, la arquitectura y las fases.
+-> Estamos en la **Fase N**. Continúa desde ahí y respeta las convenciones del repo.
++> Repo público: https://github.com/Second0709/AEVUM-TESTING-1 — rama de trabajo **`3D-implement`** (clónala con git; la web de GitHub bloquea la lectura directa).
++> Lee `docs/PLAN_TABLERO_3D.md` completo y abre `docs/referencia/aevum_tablero_v2.html` (es la referencia visual aprobada: "mucho mejor").
++> Estamos en el **Parche 1** (sección 8). Antes de escribir código, repasa la sección 9 (errores ya cometidos) y respeta las convenciones de la sección 10.
++> Entrega los cambios como parche de git (`git format-patch`) y comprueba que aplica sobre la rama.
+ 
+ ---
+ 
+-## 1. Hechos verificados del repo
+-
+-- **Servidor autoritativo.** `Match.luau` decide todo. El cliente solo dibuja el `view` que recibe por `Remotes.State` y envía acciones por `Remotes.Action`.
+-- **El `view` ya viene filtrado por jugador:** `view.me` (completo) y `view.opp` (banca boca abajo: `{uid, faceDown=true}`, combate con `cardId`).
+-- **Casillas vacías = `false`**, no `nil`.
+-- **Banca = cartas boca abajo** (criaturas y hechizos). `PlayCard` las coloca ahí; el `slot` es opcional (si no se manda, el servidor usa la primera libre). La UI actual **no** envía slot.
+-- **Combate = cartas reveladas.** Una criatura de Banca pasa a Combate cuando se declara el ataque (`DeclareAttack`), y en ese momento se revela. Los hechizos se activan desde la Banca (`ActivateSlow` / `ActivateFast`).
+-- **Evolución:** `Evolve { form, target }`, la carta de evolución sale de la mano y apunta a una criatura propia en Combate.
+-- **Objetivos válidos** vienen de `view.activatable[].targets` con `{side, zone, slot}`; zonas: `Avatar | Combat | Bench | Hand`.
+-- **Estados de espera** (`view.waiting.kind`): `Actions`, `Response`, `AttackResponse`, `FastWindow`, `AttackDeclare`, `AttackEvolve`, `Block`, `Discard` (verificar si hay más).
+-- **Ataque en curso:** `view.attack = { attackers, blocks, mode }`.
+-- **Eventos:** `view.events = { {id, kind} }` (hoy se usan `BlockKill` y `Overkill`). No traen uid/zona/slot.
+-- **Reglas (Config.Match):** 20 de vida, mazo 40, 5 casillas de Banca, 5 de Combate, mano máx. 8, energía máx. 6, reserva máx. 2, acción 30 s.
+-- **Las 20 cartas comparten el mismo `art`** (`rbxassetid://125379581550088`).
+-- **UI actual:** oscura/espacial (`UI/Theme.luau`), diseño horizontal (panel izquierdo 13%, tablero 68%, panel derecho 15%, mano abajo).
+-- **Lobby:** "Jugar contra el Bot" y "Buscar rival (2 jugadores)". El bot se activa con `ServerConfig.Bot.Enabled`.
++## 1. Estado real de la rama `3D-implement`
++
++Commits sobre `main`: Fase 1 (templo estático, cámara adaptable) · cartas 3D + animaciones + entrada táctil · archivos de prueba.
++Código en `src/StarterPlayerScripts/AEVUM/UI3D/`:
++
++| Módulo | Qué hace hoy |
++|---|---|
++| `Layout.luau` | Posiciones puras (casillas, cristales, mazos, cementerios, orbe) y `cameraFit`. Probado en `tests/Layout.spec.luau`. |
++| `Motion.luau` | Pistas de animación **puras** (estado `{x,y,z,flip,tilt,scale}`, tramos con `to` fijo o "vivo", arco, easing, `delay`, `onEnd`). Probado en `tests/Motion.spec.luau`. |
++| `BoardBuilder.luau` | Construye el templo (233 partes, 7 luces, 17 neones que pulsan), zonas táctiles invisibles por casilla, marcadores de casilla y la iluminación local. |
++| `CameraRig.luau` | Cámara `Scriptable` (FOV 45°, inclinación 58°) que ajusta la distancia a la proporción de pantalla. |
++| `CardView.luau` | Modelo 3D de carta con pool (40 instancias por carta): cuerpo de oro, `SurfaceGui` frontal y reverso, anillo `SelectionBox`. |
++| `Input3D.luau` | Toque/clic con raycast (tolerancia de arrastre 14 px; la GUI 2D tiene prioridad). |
++| `Board3D.luau` | Reconciliador **por uid** que compara el `view` nuevo con el anterior y lanza las animaciones. Devuelve `render, show, hide, api`. |
++
++Cambios fuera de `UI3D/`: `Config.Client = { Board3D, Quality }`, `Main.server` (`CharacterAutoLoads = false` si hay 3D), `AevumClient` (fondo transparente, cableado mano 2D ↔ 3D, tocar casilla vacía para colocar), `Hand.luau` (registra botones y deja hueco mientras la carta 3D aterriza), `RightPanel.luau` (atacantes en orden fijo: Banca de izquierda a derecha, luego Combate).
++
++### Animaciones ya implementadas (11 flujos, detectadas por uid, sin usar `events`)
++Mano → Banca · Banca → Combate (con volteo si se revela) · volteo en sitio · deslizar de casilla · evolución (bump + la carta de la mano se funde con la criatura) · robar del mazo a la mano · robo del rival (del mazo a su borde) · tablero → mano · tablero → cementerio · carta de mano → cementerio (descarte/evolución fallida) · desaparecer.
++**Nota:** ninguna regla actual devuelve una carta del tablero a la mano; esa animación existe pero hoy no la dispara nada.
++
++### Lo que todavía NO existe
++Disco de turno · barreras · divisor central · entorno (torres, pozos, pedestales) · ataque directo · bloqueo (choque) · vida diferida hasta el impacto · efecto de muerte · hechizo activado · pila y carrusel del cementerio · detalle grande de carta al tocar · skins de arena.
+ 
+ ---
+ 
+-## 2. Decisiones tomadas
++## 2. Hechos verificados del repo (servidor autoritativo)
++
++- `Match.luau` decide todo. El cliente dibuja el `view` (por `Remotes.State`) y envía acciones por `Remotes.Action`.
++- `view.me` completo; `view.opp`: Banca `{uid, faceDown=true}`, Combate con `cardId`. Mano rival = solo un número. Casillas vacías = `false`.
++- **Banca = cartas boca abajo para el rival**; la propia se ve (`cardId` en tu Banca). **Combate = reveladas.** `DeclareAttack` mueve de Banca a Combate al instante (primera casilla libre, en el orden de la lista de atacantes). Hechizos: se activan desde la Banca (`ActivateSlow`/`ActivateFast`).
++- `PlayCard { uid, slot? }`: el `Validator` **ya acepta `slot`** (1..BenchSlots, libre). Sin `slot`, el servidor usa la primera libre.
++- **Evolución**: `Evolve { form, target }` conserva el **mismo uid** y solo cambia `cardId` (la carta de la mano desaparece de la mano).
++- **Cementerio** (`graveyard`) = lista de **`cardId`**, no de instancias. Descartes de mano y evoluciones fallidas también van ahí.
++- Objetivos válidos: `view.activatable[].targets` `{side, zone, slot}`; zonas `Avatar | Combat | Bench | Hand`. El avatar se apunta con `tryTarget(side, "Avatar", 0, nil)`.
++- Estados de espera (`view.waiting.kind`): `Actions, Response, AttackResponse, FastWindow, AttackDeclare, AttackEvolve, Block, Discard`.
++- `view.attack = { attackers, blocks, mode }`; `view.attackerIdx` = quién tiene el derecho de ataque (el cliente 3D **aún no lo lee**).
++- `view.events = { {id, kind} }` (hoy `BlockKill`, `Overkill`): **sin uid, zona ni slot** → no sirven para animar sobre una carta concreta hasta ampliarlos.
++- Reglas (`Config.Match`): 20 de vida, mazo 40, 5 casillas de Banca y 5 de Combate, mano máx. 8, energía máx. 6, reserva máx. 2, acción 30 s.
++- Las 20 cartas comparten el mismo `art` (`rbxassetid://125379581550088`); cada carta tiene `text` (descripción), `type`, `cost`, `atk`, `hp`, `speed`, `evolveFrom`.
++- La UI 2D (`Hand`, `LeftPanel`, `RightPanel`, banners, toasts) se mantiene; el tablero 2D se conserva con `Config.Client.Board3D = false`.
++
++---
++
++## 3. Decisiones tomadas
+ 
+ | Tema | Decisión |
+ |---|---|
+-| Estilo visual | Mezcla de **templo antiguo (Yu-Gi-Oh! Master Duel)** y **tecnología antigua**: piedra oscura, oro/bronce envejecido, surcos tipo circuito, glifos de neón. |
+-| Colores de bando | Los del `Theme` actual: cian = jugador, rosa/magenta = rival. Piedra y oro son neutros. |
+-| Personaje de Roblox | **Oculto.** Solo tablero y cartas. |
+-| Plataformas | **Móvil y PC por igual.** |
+-| Dónde se construye | **En el cliente.** Cada jugador se ve siempre en +Z, el rival en -Z. |
+-| Interfaz 2D | `Hand`, `LeftPanel`, `RightPanel`, banners y toasts se mantienen en 2D por ahora. |
+-| Tablero 2D actual | Se conserva como alternativa conmutable (bandera en Config). |
+-| Jugar carta | Se selecciona desde la mano (referencia: **MTG Arena**). La carta va a la Banca; casilla automática por defecto. |
+-| Avatar | Un **cristal** a cada lado del tablero: muestra la vida y recibe el toque (objetivo `Avatar`). |
+-| Mano | **2D** mientras se elige; la carta pasa a **3D** al colocarse en la mesa. |
+-| Arte | **Arte por carta** (lo produce el equipo, necesita tiempo). Mientras tanto, imagen provisional. |
+-| Calidad gráfica | **Opción manual** para dispositivos de bajo rendimiento. |
+-| Sonido y partículas | **Sí**, referencias: Yu-Gi-Oh! Duel Links, MTG Arena y Legends of Runeterra. |
+-| Banca propia vs rival | Tus cartas de Banca se ven **boca arriba para ti**; las del rival, **boca abajo** hasta que atacan (se voltean al avanzar a Combate). |
+-| Animaciones de carta | mano → Banca · Banca → Combate (con volteo si se revela) · evolución (la carta de la mano se funde con la criatura) · robar del mazo a la mano · tablero → mano · tablero/mano → cementerio. Se deducen comparando el `view` por `uid`; no usan `events`. |
+-| Entrada 3D | Tocar/clic en cartas, casillas vacías y cristales (raycast). Con una carta de la mano seleccionada se iluminan las casillas libres de Banca y tocar una la coloca ahí (`PlayCard` con `slot`). Al declarar ataque se marcan las casillas de Combate donde entrarán los atacantes (izquierda → derecha). |
+-| Primer paso técnico | Construir con `Parts` y materiales de Roblox. Mallas de Blender solo si hace falta más adelante. |
++| Colores de bando | **Rojo/coral = rival, azul = jugador** (como el disco original). Sustituye al cian/rosa de la Fase 1. |
++| Personaje de Roblox | Oculto. Solo tablero y cartas. |
++| Plataformas | Móvil y PC por igual. |
++| Dónde se construye | En el cliente. El jugador local siempre en +Z, el rival en -Z. El índice de casilla 1 queda a la izquierda para ambos. |
++| Cristales | **Se quedan en la columna lateral izquierda**, entre Combate y Banca (se descartó ponerlos en los extremos centrales: demasiado arriesgado para la visualización). |
++| Mazo y cementerio | Columna derecha. Mazo a la altura de la Banca, cementerio a la de Combate. |
++| Banca propia / rival | La tuya se ve **boca arriba** para ti; la del rival **boca abajo** hasta que ataca. Las cartas reveladas del rival se ven **derechas hacia ti**. |
++| Disco central | Copia el `.orbe` de la referencia original: círculo partido por una línea horizontal, **mitad superior roja (rival), inferior azul (tú)**, línea blanca y punto blanco. La mitad de quien tiene el derecho de ataque **brilla y pulsa**; la otra baja a ~45 % de brillo. No lleva manecilla. Se alimenta de `view.attackerIdx`. |
++| Barreras | Una por bando, **detrás de la Banca**, bajas (~1 stud) y translúcidas para no tapar la Banca propia. Caben sin alargar la mesa (Banca llega a ~15.6, marco a ~18.5; barrera a ~17). |
++| Ataque directo | La carta **vuela en línea recta por su columna** contra la barrera rival, que se ilumina con efecto de **cristal quebrado**; desde el impacto **fluyen pulsos** por los surcos hasta el cristal rival (destello, temblor, número de daño). La carta vuelve a su casilla. Pulso proporcional al ATK. |
++| Bloqueo | La carta embiste a su bloqueador y chocan (mismo sistema; después). |
++| Cartas | Cara **mínima**: arte a todo el alto + **ATK (abajo izq.) y VIDA (abajo der.) en grande** + etiqueta corta de estado ("ATACA", "BLOQUEA", "[lista]", "[en preparación]"). Sin nombre, costo ni descripción en la carta. |
++| Detalle | Al tocar **cualquier carta visible** (propia o rival revelada) se muestra una **carta grande vertical** con nombre, costo, arte, ATK/VIDA y `text`. Tocar sigue seleccionando/apuntando como hoy. Las boca abajo del rival no muestran detalle. Propuesta: panel fijo junto al tablero (no tapa nada al elegir objetivos). |
++| Mano | 2D mientras se elige; la carta pasa a 3D al colocarse. Robar y devolver vuelan hacia/desde la posición del botón de la mano. |
++| Cementerio | **Pila de cartas que crece**; al tocarla abre un **carrusel 2D** (más legible). Después: poder devolver cartas al campo/mano (ver sección 7). |
++| Interacción | Con una carta de la mano seleccionada se iluminan las casillas libres de Banca; tocarla coloca (`PlayCard` con `slot`). Al declarar ataque se marcan las casillas de Combate donde entrarán los atacantes. Tocar el vacío cancela. |
++| Estilo | Detalle en el **entorno** que rodea el campo (torres, pozos, pedestales), campo de poco contraste, baldosas grabadas, divisor central con identidad propia. Ver sección 4. |
++| Calidad | Opción manual. Baja = sin brillos animados, sin luces, sin sombras, sin partículas. |
++| Técnica | Todo con `Part`s y materiales de Roblox. Mallas de Blender solo si hace falta (ver sección 11). |
+ 
+ ---
+ 
+-## 3. Detalles aún abiertos (no bloquean la Fase 1)
++## 4. Diseño objetivo de la arena (referencia: `docs/referencia/aevum_tablero_v2.html`)
++
++Abre ese HTML: es la maqueta aprobada. Traducción a Roblox:
++
++- **Skins como paletas intercambiables** (MTG Arena tiene arenas temáticas): `Ruinas` (crema/verde, **recomendada como base**: la queja principal fue lo oscuro), `Circuito` (cian con rejilla) y `Templo` (violeta/oro). Una tabla `Palette` por skin (suelo, baldosa, borde, resplandor, marco, color del divisor, rojo/azul de bando) en `Config.Client.Skin`. **Decisión pendiente del usuario: con cuál skin empezar.**
++- **Entorno > campo.** El suelo de juego es liso y de poco contraste para que las cartas destaquen. El detalle va en los bordes: 4 torres hexagonales bajas en las esquinas (una sola luz cada una), pozos y pedestales, luciérnagas (solo calidad alta).
++- **Baldosas grabadas, 1 pieza por casilla.** El grabado (octógono en Banca, círculo en Combate, línea del color del bando) se dibuja en un `SurfaceGui` sobre la placa. Hoy cada casilla cuesta 6 partes; objetivo: ≤ ~130 partes en total (hoy 233).
++- **Divisor central**: "río de luz" animado a lo ancho (en las referencias: lava, río, puente, línea de luz), con el **disco de turno** encima.
++- **Cristales**: facetados (no cubos), sobre plinto, con medallón de vida pequeño (número ~20) en lugar del letrero gigante. Contadores de mazo/cementerio discretos sobre las pilas.
++- **Mazo** = pedestal con cartas apiladas y resplandor del color del bando. **Cementerio** = pozo con remolino y pila de cartas encima.
++- **Barreras** = panel bajo con franjas verticales y glifos, en el color del bando; el panel de la barrera aloja el `SurfaceGui` de grietas.
++- **Iluminación más clara**: ambiente más alto, sol alto (no rasante), bloom suave, atmósfera ligera. Quitar el suelo de roca de 600×600 (textura Basalt) por una superficie lisa.
++- **Mano del rival**: abanico de reversos asomando por el borde superior (como MTG Arena); su mano es solo un número.
+ 
+-1. **Confirmación al jugar:** ¿un toque sobre la carta seleccionada la juega, o se mantiene un botón de confirmar? *Propuesta:* seleccionar → las casillas libres de Banca se iluminan → tocar la casilla (o tocar de nuevo la carta para casilla automática).
+-2. **Especificación del arte:** *Propuesta:* ilustración sin texto, relación 4:3, 1024×768 px, PNG. El nombre, ATK, VIDA y costo los dibuja el juego. Mientras no esté el arte, `CardDatabase.art` sigue con la imagen provisional.
+-3. **Origen de los sonidos:** los audios de Roblox deben subirse o usar los autorizados. Hay que definir qué eventos llevan sonido (jugar, revelar, ataque, daño, muerte, curación, escudo, turno).
+-4. **Menú de ajustes:** calidad gráfica manual y volumen. *Propuesta:* un botón de engranaje 2D en la partida y en el lobby. Guardar la preferencia en el cliente primero; en `PlayerDataService` más adelante.
+-5. **Qué cambia en calidad baja:** *Propuesta:* sin partículas pesadas, sin luces dinámicas extra, sin sombras, glifos sin brillo animado.
+-6. **Mano del rival:** `view.opp.hand` es solo un número. *Propuesta:* mostrar reversos de carta en el borde del rival.
+-7. **Cementerio:** `graveyard` es una lista. *Propuesta:* tocar el montón abre una lista 2D para verlo.
+-8. **Flechas de objetivo** (como Arena o Runeterra) al elegir objetivo de hechizo o bloqueo: *Propuesta:* dejarlas para la Fase 5.
+-9. **Fin de partida y banners:** se mantienen en 2D (`Overlay`, `Banner`).
++Constantes actuales de `Layout`: carta 4×5.6; `SLOT_PITCH` 5; `ROW_COMBAT` 5.6; `ROW_BENCH` 12.8; `SIDE_X` 17.5; `CARD_Y` 0.6; `SEL_LIFT` 0.9; `HOVER_Y` 2.8; `PILE_Y` 0.95; `ORB_Y` 4. Origen de la mesa en el Workspace: `(0, 500, 0)`. Región de pantalla libre para el tablero: x 0.15–0.83, y 0.08–0.76.
++
++### Legibilidad (el reto más difícil)
++A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar 80–90 px como mucho. La legibilidad la dan los **números gigantes de ATK/VIDA (~30 px de alto)** y el **detalle al tocar**, no el tamaño. Ayudas: bajar la inclinación de cámara de 58° a ~46° y apretar espacios para ganar tamaño (recalcular `cameraFit`).
+ 
+ ---
+ 
+-> **Estado:** Fase 1 hecha. Cartas 3D, animaciones y `Input3D` (adelanto de las Fases 2, 3 y parte de la 4) en el segundo commit.
+-> **Nota:** ninguna regla actual devuelve una carta del tablero a la mano; la animación existe y se dispara sola si un uid de tu Banca/Combate aparece en tu mano, pero hoy no la provoca ninguna carta.
+-> **Pendiente:** arena más clara y detallada (parche aparte), flechas de objetivo, cementerio navegable, reversos de la mano rival, sonidos y partículas.
++## 5. Cartas 3D: especificación del Parche 1
+ 
+-## 4. Arquitectura propuesta
++1. **Orientación determinista.** Hoy el `SurfaceGui` va en la cara `Top` suponiendo hacia dónde apunta el "arriba" del texto; el usuario reporta caras **horizontales y estiradas**. Corregir usando una cara cuya orientación es conocida: una pieza fina cuya cara `Front` (normal −Z) apunta a +Y y cuyo "arriba" apunta a −Z (lo que lee la cámara en +Z). Rotación propuesta: `CFrame.Angles(0, math.pi, 0) * CFrame.Angles(math.pi / 2, 0, 0)`. **Verificar en Studio** y dejar una constante para corregirla si saliera al revés. El canvas debe tener la misma proporción que la cara física.
++2. **Cara mínima** (arte + ATK + VIDA + etiqueta corta). Menos instancias por carta (hoy 40).
++3. **Reveladas del rival derechas hacia el jugador.**
++4. **Detalle al tocar** con carta grande (panel 2D fijo; reutilizar el render de carta 2D si ayuda).
++5. El reverso mantiene el rombo del color del bando (rojo/azul).
+ 
+-Carpeta nueva: `src/StarterPlayerScripts/AEVUM/UI3D/`
++---
+ 
+-| Módulo | Responsabilidad |
+-|---|---|
+-| `Layout.luau` | Funciones puras con las posiciones de casillas, vitales, mazos, etc. Sin instancias, así se puede probar con `luau` CLI. |
+-| `BoardBuilder.luau` | Construye una sola vez el templo estático (base, nichos, glifos, orbe, luces). |
+-| `CardView.luau` | Fábrica y reutilización (pool) de cartas 3D: frente, reverso, ATK/VIDA/costo, estados (escudo, aturdida, reflejo). |
+-| `Board3D.luau` | **Reconciliador:** compara el `view` nuevo con lo que hay en escena (por `uid`) y crea, mueve o elimina cartas. Misma forma que `Board.luau`: `Board3D.create(ctx)` devuelve la función de render. |
+-| `CameraRig.luau` | Cámara `Scriptable` adaptable a la proporción de pantalla (móvil/PC). |
+-| `Input3D.luau` | Un solo sistema para toque y ratón (raycast), con zonas de toque generosas. Llama a los callbacks existentes: `onMyCombat`, `onMyBench`, `onOppCombat`, `onOppBench`. |
+-| `Fx.luau` (Fase 4+) | Animaciones y partículas a partir de eventos. |
+-
+-Cambios fuera de `UI3D/`:
+-- `Main.server.luau`: `Players.CharacterAutoLoads = false`.
+-- `Config.luau`: bandera `Config.Client = { Board3D = true }` (o similar).
+-- `AevumClient.client.luau`: elegir entre `BoardUI` y `Board3D`; hacer transparente el fondo de `gameFrame` cuando el 3D está activo.
+-- `Match.luau` (`emit`): añadir `uid`, zona y slot a los eventos (Fase 4).
++## 6. Animaciones y combate (Parche 4)
++
++- **Ataque directo** (decisión de la sección 3). Requiere en `Match.luau`: evento `DirectHit { uid atacante, side, damage, absorbed }` (ver sección 7).
++- **La vida debe retrasarse**: el `view` llega con el resultado ya aplicado; el número de vida y la barra del cristal se actualizan al llegar el pulso, no antes.
++- **Pulsos**: salen del punto de impacto, recorren la base de la barrera hasta la columna lateral y suben al cristal. Hay que **añadir un surco** barrera → cristal (hoy no existe). Pulso en cadena si atacan varias cartas (orden de declaración).
++- **Cristal de grietas**: líneas procedurales en un `SurfaceGui` sobre el panel de la barrera (barato en móvil); se desvanecen en ~1 s. En calidad baja, solo destello. Idea opcional (no incluida): acumular grietas según la vida.
++- **Bloqueo**: embestida al bloqueador + choque.
++- **Muerte con efecto**, **hechizo activado**, **evolución más vistosa**.
++- Camino largo: columna 5 → cristal izquierdo ≈ 35 studs, ~0.5–0.6 s con pulso.
++
++---
++
++## 7. Cambios de servidor y reglas pendientes (pasar por `Validator.luau`, con pruebas en `Match.spec.luau`)
++
++1. **Evento `DirectHit`** en `emit()` (uid del atacante, bando, daño, escudo absorbido). Los eventos actuales no traen uid.
++2. **Revivir desde el cementerio** (Parche 5): el cementerio guarda `cardId`, así que revivir **crea una instancia nueva con uid nuevo**. Propuesta de efecto: `{ kind = "Revive", to = "Bench" | "Combat" | "Hand", count = 1, filter? }`, con objetivo en zona `Graveyard` (slot = índice). El carrusel del cementerio sirve de selector. Decidir reglas: ¿entra "preparada"? ¿coste? Primer caso real que dispara la animación "tablero → mano" y "cementerio → casilla".
++3. No inventar acciones nuevas sin pasar por `Validator`.
+ 
+ ---
+ 
+-## 5. Fases
++## 8. Plan de parches (criterio de terminado de cada uno: partida completa contra el bot sin errores en Output)
++
++1. **Parche 1 — Cartas y arena limpia**
++   a) Bugs: discos con `Shape = Cylinder`, cristal facetado, orientación de cara, zonas táctiles sin estorbar.
++   b) Cartas: cara mínima + detalle al tocar + reveladas del rival derechas.
++   c) Arena: paleta por skin, baldosas de 1 pieza con `SurfaceGui`, quitar letreros gigantes/franjas de neón/suelo de roca, iluminación clara, torres, divisor, pedestal de mazo y pozo de cementerio.
++   d) Disco de turno (mitades roja/azul) alimentado por `view.attackerIdx`.
++   e) Barreras estáticas + surco barrera → cristal.
++   f) Reencuadre de cámara (pitch ~46°, espacios más justos).
++   Dos commits: (b) y (c–f), porque comparten el cálculo de cámara.
++2. **Parche 2 — Pila y carrusel del cementerio** (solo cliente).
++3. **Parche 3 — Ataque directo y combate** (evento `DirectHit`, vida diferida, pulsos, grietas, bloqueo).
++4. **Parche 4 — Revivir desde el cementerio** (regla de servidor + animaciones).
++5. **Parche 5 — Pulido**: sonidos (jugar, revelar, ataque, daño, muerte, curación, escudo, turno), partículas por tipo de efecto, arte por carta (el equipo lo produce: ilustración sin texto 4:3, 1024×768 PNG, mientras tanto la imagen provisional), calidad baja, menú de ajustes (volumen y calidad; guardar en cliente primero).
++
++---
+ 
+-1. **Base:** ocultar personaje, cámara adaptable, tablero estático del templo (piedra, oro, glifos, orbe). Sin lógica.
+-2. **Conexión al `view`:** cartas en Banca/Combate, rival boca abajo, vitales, mazos, cementerios, orbe según `attackerIdx`. Render por `uid`.
+-3. **Interacción:** toque/clic en casillas y avatares, resaltado de objetivos, atacantes y bloqueos, usando los callbacks existentes.
+-4. **Eventos y animaciones:** ampliar `emit()` y animar jugar, revelar al atacar, bloquear, daño, muerte, curación, escudo.
+-5. **Efectos y pulido:** partículas por tipo de efecto, sonidos, arte por carta, niveles de calidad.
++## 9. Errores ya cometidos (no repetir)
+ 
+-Criterio de "terminado" de cada fase: se puede jugar una partida completa contra el bot sin errores en la consola.
++- **Discos que salían cuadrados**: se giró el cilindro (`CFrame.Angles(0,0,pi/2)`) pero **no se activó `Shape = Enum.PartType.Cylinder`**. Revisar toda pieza redonda.
++- Suponer la orientación de un `SurfaceGui` sin verificarla → texto horizontal/estirado.
++- Letreros `BillboardGui` enormes y `AlwaysOnTop` que se pisan con la mesa.
++- Mucha geometría repetitiva por casilla (6 partes × 20) → ruido y coste.
++- Paleta demasiado oscura/rústica frente a la referencia original (luminosa).
++- Hacer `render` que borra y recrea todo: el 3D reconcilia por uid o no habrá animaciones.
++- Mutar una tabla mientras se recorre con `pairs` dentro de callbacks de animación: usar `task.defer` para `requestRender`.
++- `ctx.fn and ctx.fn(x)` trunca los retornos múltiples: llamar `a, b = ctx.fn(x)` explícitamente.
++- Los resultados de `luau` CLI: las globales son de solo lectura (ver `tests/smoke`).
+ 
+ ---
+ 
+-## 6. Convenciones del repo (respetar)
++## 10. Convenciones del repo y flujo de trabajo
+ 
+-- Cabecera `--!nonstrict` y comentario `-- AEVUM · <descripción> (vX.Y.Z)`.
+-- Indentación con **tabs**.
+-- Comentarios en español.
+-- Los datos compartidos (cartas, reglas) viven en `ReplicatedStorage/AEVUM`; lo exclusivo del servidor en `ServerScriptService/AEVUM`.
+-- Cada módulo nuevo necesita su `.meta.json` solo si el repo lo usa para ese tipo de archivo (los `.luau` de UI actuales no lo tienen).
+-- Mantener los nombres de acciones y la validación de `Validator.luau`: no inventar acciones nuevas sin pasar por ahí.
++- Cabecera `--!nonstrict` y comentario `-- AEVUM · <descripción> (vX.Y.Z)` (versión actual de la rama: v1.3.0, sin subir hasta fusionar).
++- Indentación con **tabs**. Comentarios en español.
++- Datos compartidos en `ReplicatedStorage/AEVUM`; lo exclusivo del servidor en `ServerScriptService/AEVUM`.
++- Los `.luau` de UI no llevan `.meta.json`.
++- **Claude no puede ejecutar Roblox Studio ni subir al repo.** Entrega parches (`git format-patch`) que se aplican con `git am` en la rama, y comprueba que aplican limpio sobre ella. Rojo (`rojo serve`) sincroniza con Studio. Se prueba en Studio contra el bot (`ServerConfig.Bot.Enabled = true`).
++- Ante un fallo, enviar el mensaje completo de Output con la línea y, si es visual, una captura.
++- **Pruebas sin Studio** (ejecutar antes de entregar cualquier parche):
++  - `luau tests/Match.spec.luau` · `luau tests/Layout.spec.luau` · `luau tests/Motion.spec.luau`
++  - `python3 tests/smoke/run.py [ruta a luau]`: simula la API mínima de Roblox y ejecuta los escenarios de `Board3D` (jugar, robar, avanzar con volteo, cementerio, devolver, evolución, partida nueva). Si UI3D usa API nueva, ampliar `tests/smoke/_stubs.luau`.
++  - Obtener `luau`: `curl -sL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip && unzip luau.zip`.
++- Mantener los nombres de acciones y la validación de `Validator.luau`.
+ 
+ ---
+ 
+-## 7. Flujo de trabajo y pruebas
++## 11. Riesgos y decisiones abiertas
+ 
+-- **Rama de trabajo: `feature/tablero-3d`.** Nada de esto se sube a `main`. Todo el trabajo del tablero 3D va en esa rama y se fusiona a `main` solo cuando esté probado.
+-- Claude **no puede ejecutar Roblox Studio ni subir al repo.** Entrega cada fase como un parche de git (`git format-patch`) que se aplica en la rama con `git am`, o como archivos con la misma estructura de carpetas del repo. Rojo (`rojo serve`) sincroniza con Studio.
+-- Se prueba en Studio contra el bot (`ServerConfig.Bot.Enabled = true`).
+-- Ante un fallo, enviar el **mensaje de error completo de la Output** (con la línea) y, si es visual, una captura.
+-- La lógica pura (`Layout.luau`) se puede cubrir con pruebas en `tests/`, como `Match.spec.luau`.
++- **Skin con la que empezar** (recomendada: Ruinas). Pendiente de confirmar por el usuario.
++- **Límite de `Part`s**: no se consigue una silueta de gema real; cristales y torres saldrán estilizados. Si se quiere la riqueza de los ejemplos de Master Duel, encargar modelos en Blender (cristal, torres, pedestales) más adelante.
++- **Rendimiento en móvil**: ≤ ~130 partes, pocas luces, pool de cartas, calidad baja.
++- **Texto ilegible en cartas pequeñas**: mitigado con cara mínima + detalle al tocar.
++- **Conflicto de toques** GUI 2D / raycast 3D: la GUI consume el toque primero (`gameProcessed`).
++- **Cristal cercano vs. mano 2D**: la mano ocupa la parte baja de la pantalla; todo el tablero debe quedar dentro de la región libre.
++- **Eventos sin datos** hasta añadir `DirectHit`.
+ 
+ ---
+ 
+-## 8. Riesgos
++## 12. Referencias visuales
+ 
+-- **Rendimiento en móvil:** muchas partes, luces y partículas. Mitigación: pool de cartas, pocas luces, niveles de calidad.
+-- **Texto ilegible en cartas 3D pequeñas:** mostrar solo lo esencial en la carta y dejar el detalle en el panel de inspección.
+-- **Conflicto de toques** entre GUI 2D y raycast 3D: la GUI debe consumir el toque primero (`GuiService`/`gameProcessed`).
+-- **Reconstrucción total del `render`:** el 2D borra y recrea todo en cada estado; el 3D no puede hacerlo o no habrá animaciones.
+-- **Eventos sin datos** (`id` y `kind` solamente): hasta ampliarlos, no se puede animar sobre una carta concreta.
++- **`docs/referencia/aevum_tablero_v2.html`** — maqueta interactiva aprobada (skins, disco, barrera, ataque directo en línea recta + pulso, carrusel del cementerio, tocar para ver detalle). Probar los botones de la cabecera.
++- Original del usuario: `aevum_tablero_original` (HTML con el `.orbe` de dos mitades, paleta crema/oro/menta, coral y azul).
++- 19 capturas de MTG Arena (arenas: lava, desierto, bosque con río, madera embrujada, trigal, filigrana dorada, mapa, aldea, sci-fi, laboratorio, plaza de piedra, místico, neón morado), Yu-Gi-Oh! Master Duel (ciudad nocturna, ruinas de selva, sci-fi con ventiladores) y Legends of Runeterra (Grieta del Invocador, tablero de Freljord/Noxus). Conclusiones: el detalle vive en el entorno que rodea el campo; el campo es de poco contraste; cada arena tiene un divisor propio; las casillas tienen identidad (baldosas grabadas); mazo y cementerio son objetos físicos (pedestales, pozos); en Runeterra el cristal con su número y la ficha de ataque en el divisor central son el centro de cada bando. (Si se quieren conservar, añadirlas a `docs/referencia/`.)
+diff --git a/docs/referencia/aevum_tablero_v2.html b/docs/referencia/aevum_tablero_v2.html
+new file mode 100644
+index 0000000..82ab53c
+--- /dev/null
++++ b/docs/referencia/aevum_tablero_v2.html
+@@ -0,0 +1,140 @@
++<!DOCTYPE html>
++<html lang="es">
++<head>
++<meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
++<title>AEVUM · Tablero nuevo (propuesta)</title>
++<style>
++:root{--bg:#dff0e4;--bg2:#f4ecd6;--panel:#fffaf0;--slot:#ece0c2;--line:#c9b27a;--ink:#2a2418;--mut:#7a6d52;--gold:#f0c878;--rv:#e89878;--rv2:#a85838;--al:#78b8e0;--al2:#3868a8;--card:#fffdf6;--atk:#d9603f;--hp:#3f9a5f;--bar:rgba(255,255,255,.55);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
++@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d0f1c;--bg2:#1a1c30;--panel:#161828;--slot:#23263c;--line:#8a6d3b;--ink:#ecebf5;--mut:#9a9ab5;--gold:#d8ae5c;--rv:#ff6b6b;--rv2:#b02a3a;--al:#4db8ff;--al2:#1d5fb0;--card:#1f2238;--bar:rgba(120,200,255,.18)}}
++:root[data-theme="dark"]{--bg:#0d0f1c;--bg2:#1a1c30;--panel:#161828;--slot:#23263c;--line:#8a6d3b;--ink:#ecebf5;--mut:#9a9ab5;--gold:#d8ae5c;--rv:#ff6b6b;--rv2:#b02a3a;--al:#4db8ff;--al2:#1d5fb0;--card:#1f2238;--bar:rgba(120,200,255,.18)}
++*{box-sizing:border-box}html,body{height:100%}body{margin:0;font:14px/1.35 system-ui,Segoe UI,sans-serif;color:var(--ink);background:radial-gradient(120% 90% at 50% 20%,var(--bg2),var(--bg));display:flex;flex-direction:column}
++header{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--panel);border-bottom:2px solid var(--line);flex-wrap:wrap}
++header b{letter-spacing:.08em}header .btns{display:flex;gap:6px;flex-wrap:wrap}
++button{font:inherit;color:var(--ink);background:var(--bg2);border:1.5px solid var(--line);border-radius:8px;padding:5px 10px;cursor:pointer}button:hover{background:var(--gold);color:#2a2418}
++main{flex:1;display:grid;grid-template-columns:190px minmax(0,1fr) 150px;gap:10px;padding:10px;min-height:0;max-width:1200px;width:100%;margin:0 auto}
++aside{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:10px;font-size:12.5px;overflow:auto}
++.stage{display:flex;flex-direction:column;align-items:center;min-width:0}
++
++#world{--rv:#e8805a;--rv2:#9a4a30;--al:#4a9fd8;--al2:#2a5f9a;--fl1:#d9d2a8;--fl2:#9fae7a;--tile:#e9e0b8;--tile2:#c4b886;--edge:#8a7a4a;--glow:#ffe9a0;--frame:#b8944a;--river:#7fd1e8;--env:radial-gradient(90% 80% at 50% 40%,#9fcf86,#4f7f4a 70%,#2d4a2e);position:relative;display:flex;flex-direction:column;align-items:center;padding:22px 6px 12px;border-radius:14px;background:var(--env);overflow:hidden}
++#world[data-skin="circuito"]{--rv:#ff6b4a;--rv2:#8a2a1a;--al:#4ad0ff;--al2:#126a9a;--fl1:#14343d;--fl2:#091c24;--tile:#1f4d59;--tile2:#12333c;--edge:#2fd0e0;--glow:#7ff3ff;--frame:#2a7c88;--river:#ffa43a;--env:repeating-linear-gradient(0deg,#0000 0 38px,#2fd0e022 38px 40px),repeating-linear-gradient(90deg,#0000 0 38px,#2fd0e022 38px 40px),radial-gradient(90% 80% at 50% 40%,#0e3a44,#04141a)}
++#world[data-skin="templo"]{--rv:#ff5f7a;--rv2:#8a1f3a;--al:#6aa8ff;--al2:#2a4fa0;--fl1:#2e2744;--fl2:#161226;--tile:#3d3358;--tile2:#251f3c;--edge:#d8ae5c;--glow:#ffd98a;--frame:#d8ae5c;--river:#b66bff;--env:radial-gradient(90% 80% at 50% 40%,#3a2a5c,#120d22 75%)}
++#world::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(70% 60% at 50% 45%,transparent 40%,#0007)}
++.fl{position:absolute;width:5px;height:5px;border-radius:50%;background:var(--glow);box-shadow:0 0 8px 2px var(--glow);opacity:.0;animation:fy 7s infinite}@keyframes fy{0%{opacity:0;transform:translateY(0)}20%{opacity:.8}100%{opacity:0;transform:translateY(-90px)}}
++.ohand{display:flex;justify-content:center;margin-bottom:-18px;position:relative;z-index:0}.ohand i{width:46px;aspect-ratio:5/7;margin:0 -5px;border-radius:5px;border:2px solid var(--frame);background:linear-gradient(160deg,#3a2f5a,#1b1630)}
++#board{--sc:var(--al);position:relative;z-index:1;width:min(100%,660px);display:grid;grid-template-columns:.95fr repeat(5,1fr) .95fr;grid-template-rows:22px auto auto 100px auto auto 22px;gap:7px;padding:16px 14px;background:radial-gradient(ellipse at 50% 50%,var(--fl1),var(--fl2));border:9px solid var(--frame);border-radius:18px;transform:perspective(1500px) rotateX(9deg);transform-origin:50% 100%;box-shadow:inset 0 0 0 3px #0005,inset 0 0 50px #000a,0 0 0 3px var(--edge),0 26px 50px #000a}
++#board::before{content:"";position:absolute;inset:0;border-radius:10px;pointer-events:none;opacity:.22;mix-blend-mode:multiply;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
++.tw{position:absolute;width:48px;height:48px;background:linear-gradient(145deg,var(--frame),#0008);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%);display:grid;place-items:center;z-index:3}.tw::after{content:"";width:14px;height:14px;border-radius:50%;background:var(--glow);box-shadow:0 0 14px 4px var(--glow);animation:pu 2.2s infinite}@keyframes pu{50%{opacity:.35}}
++.slot{aspect-ratio:5/7;border-radius:8px;background:linear-gradient(160deg,var(--tile),var(--tile2));box-shadow:inset 0 3px 8px #0006,inset 0 -1px 0 #fff3,0 0 0 2px var(--edge);position:relative}
++.slot::before{content:"";position:absolute;inset:15% 11%;clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%);background:linear-gradient(var(--tile2),var(--tile));box-shadow:inset 0 0 0 3px var(--edge)}
++.slot[data-z="c"]::before{clip-path:none;border-radius:50%;inset:auto;left:50%;top:50%;width:72%;aspect-ratio:1;transform:translate(-50%,-50%);border:3px double var(--edge);box-shadow:none}
++.slot::after{content:"";position:absolute;left:18%;right:18%;bottom:5%;height:3px;border-radius:3px;background:var(--sc);box-shadow:0 0 8px var(--sc)}
++.slot.rv{--sc:var(--rv)}.slot.al{--sc:var(--al)}
++.slot.mark{outline:3px solid #5fd07a;animation:pl 1s infinite;cursor:pointer}@keyframes pl{50%{outline-color:transparent}}
++.card{position:absolute;inset:0;z-index:2;border-radius:7px;background:var(--card);overflow:hidden;cursor:pointer;border:2px solid var(--frame);box-shadow:0 4px 8px rgba(0,0,0,.45);animation:drop .5s both}
++@keyframes drop{from{transform:translateY(-40px) scale(1.2);opacity:0}}
++.card .art{position:absolute;inset:0;background:linear-gradient(160deg,hsl(var(--h) 70% 72%),hsl(var(--h) 55% 38%))}
++.card .art::after{content:attr(data-g);position:absolute;inset:0;display:grid;place-items:center;font-size:2.4em;opacity:.55;color:#fff}
++.st{position:absolute;bottom:3%;min-width:38%;text-align:center;font-weight:900;font-size:clamp(15px,2.6vw,24px);color:#fff;border-radius:8px;padding:0 4px;text-shadow:0 1px 2px #000;border:2px solid #fff}
++.st.a{left:3%;background:#d9603f}.st.h{right:3%;background:#3f9a5f}
++.card .tag{position:absolute;top:0;left:0;right:0;font-size:10px;font-weight:700;text-align:center;color:#fff;background:rgba(0,0,0,.6)}
++.card.down .art,.card.down .st,.card.down .tag{display:none}
++.card.down{background:linear-gradient(160deg,#3a2f5a,#1b1630);border-color:var(--glow)}
++.card.down::after{content:"";position:absolute;left:50%;top:50%;width:46%;aspect-ratio:1;transform:translate(-50%,-50%) rotate(45deg);border:3px solid var(--glow)}
++.card.down.rv::after{border-color:var(--rv)}.card.spell .art{filter:hue-rotate(60deg)}
++.bar{grid-column:2/7;border-radius:6px;position:relative;background:repeating-linear-gradient(90deg,#0000 0 14px,#fff4 14px 16px),linear-gradient(#fff0,var(--sc));border:1px solid var(--sc);box-shadow:0 0 14px var(--sc),inset 0 0 8px var(--sc)}
++.bar.hit{animation:hit .9s}@keyframes hit{0%{background:#fff;box-shadow:0 0 34px 8px #fff}}
++.crack{position:absolute;top:-14px;left:var(--cx);width:60px;height:44px;margin-left:-30px;opacity:0;pointer-events:none}.bar.hit .crack{animation:cr .9s}@keyframes cr{0%,60%{opacity:1}100%{opacity:0}}
++.crystal{grid-column:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;z-index:2}
++.crystal.rv{--c:var(--rv);--c2:var(--rv2);grid-row:2/4}.crystal.al{--c:var(--al);--c2:var(--al2);grid-row:5/7}
++.gem{width:46px;height:64px;clip-path:polygon(50% 0,100% 35%,80% 100%,20% 100%,0 35%);background:linear-gradient(120deg,#fffa 0 28%,#0000 28% 60%,#0004 60%),linear-gradient(135deg,#fff,var(--c) 40%,var(--c2));filter:drop-shadow(0 0 10px var(--c));animation:bo 3s ease-in-out infinite}@keyframes bo{50%{transform:translateY(-4px)}}
++.plinth{width:64px;height:18px;margin-top:-10px;background:linear-gradient(var(--frame),#0009);clip-path:polygon(12% 0,88% 0,100% 100%,0 100%)}
++.hp{min-width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:18px;color:#fff;background:radial-gradient(#2a2440,#0b0816);border:3px solid var(--frame);box-shadow:0 0 12px var(--c)}
++.crystal.shake .gem{animation:sh .5s}@keyframes sh{20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-3px)}}
++.gems i{display:inline-block;width:8px;height:8px;margin:1px;border-radius:50%;background:var(--al)}.gems i.e{opacity:.25}.gems i.r{background:#9b6bff}
++.pile{grid-column:7;display:grid;place-items:center}
++.deck{width:78%;aspect-ratio:5/7;border-radius:6px;border:2px solid var(--glow);background:linear-gradient(160deg,#3a2f5a,#1b1630);box-shadow:2px 2px 0 #1b1630,4px 4px 0 #1b1630,6px 6px 0 #1b1630,0 0 12px var(--sc);display:grid;place-items:center;text-align:center;font-size:11px;font-weight:800;color:#fff}
++.pit{width:88%;aspect-ratio:1;border-radius:50%;cursor:pointer;display:grid;place-items:center;text-align:center;font-size:11px;font-weight:800;color:#fff;position:relative;background:radial-gradient(circle,#000 30%,var(--tile2) 32%,var(--edge) 64%);box-shadow:0 0 0 3px var(--frame),0 0 14px var(--sc)}
++.pit::before{content:"";position:absolute;inset:14%;border-radius:50%;background:conic-gradient(from 0deg,#0000,var(--sc),#0000 60%);animation:sp 4s linear infinite;opacity:.7}@keyframes sp{to{transform:rotate(360deg)}}
++.pit b{position:relative}
++.orb{grid-column:3/6;grid-row:4;justify-self:center;align-self:center;z-index:3;width:84px;height:84px;border-radius:50%;position:relative;overflow:hidden;border:3px solid #fff;box-shadow:0 0 14px rgba(0,0,0,.5)}
++.orb i{position:absolute;left:0;right:0;height:50%}.orb .t{top:0;background:linear-gradient(#ffe0d0,var(--rv) 55%,var(--rv2))}.orb .b{bottom:0;background:linear-gradient(var(--al),var(--al2))}
++.orb::before{content:"";position:absolute;left:0;right:0;top:calc(50% - 1px);height:2px;background:#fff;z-index:2}.orb::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px;border-radius:50%;background:#fff;box-shadow:0 0 10px #fff;z-index:3}
++#board[data-turn="ally"] .orb .t,#board[data-turn="rival"] .orb .b{filter:brightness(.45) saturate(.5)}
++#board[data-turn="ally"] .orb .b,#board[data-turn="rival"] .orb .t{animation:gl 1.4s infinite}@keyframes gl{50%{filter:brightness(1.35)}}
++.river{grid-row:4;grid-column:1/8;margin:0 -14px;align-self:center;height:24px;border-radius:14px;background:repeating-linear-gradient(90deg,#fff5 0 14px,#0000 14px 34px),linear-gradient(90deg,#0000,var(--river) 15%,var(--river) 85%,#0000);background-size:68px 100%,100% 100%;animation:fw 3s linear infinite;box-shadow:0 0 20px var(--river),inset 0 0 8px #fff8;opacity:.85}@keyframes fw{to{background-position:68px 0,0 0}}
++.fx{position:absolute;inset:0;pointer-events:none;z-index:9}.fx .card{animation:none}.dot{position:absolute;width:16px;height:16px;margin:-8px;border-radius:50%;background:var(--al);box-shadow:0 0 16px 5px var(--al)}
++.float{position:absolute;font-weight:900;font-size:22px;color:#ff6a4a;text-shadow:0 0 6px #000;animation:fl 1s forwards}@keyframes fl{to{transform:translateY(-30px);opacity:0}}
++#hand{display:flex;justify-content:center;height:120px;margin-top:22px;width:min(100%,640px);position:relative;z-index:2}
++#hand .hc{position:relative;width:76px;aspect-ratio:5/7;margin:0 -6px;transition:transform .15s;transform-origin:50% 120%;cursor:pointer}
++#hand .hc:hover,#hand .hc.sel{transform:translateY(-22px) scale(1.12)!important;z-index:5}#hand .card{animation:none}
++.big{position:relative;aspect-ratio:5/7;width:100%;margin-bottom:8px}.big .card{animation:none;cursor:default}.big .st{font-size:26px}
++#gy{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;place-items:center;z-index:20;padding:16px}#gy.on{display:grid}
++#gy .box{background:var(--panel);border:3px solid var(--gold);border-radius:14px;padding:14px;max-width:560px;width:100%}
++#gy .row{display:flex;gap:10px;overflow-x:auto;padding:10px 4px;scroll-snap-type:x mandatory}#gy .it{flex:0 0 110px;aspect-ratio:5/7;position:relative;scroll-snap-align:center}
++.act{width:100%;padding:12px;font-weight:800;background:var(--gold);color:#2a2418;margin-bottom:8px}.ph{display:flex;flex-direction:column;gap:4px;font-size:12px}.ph span{padding:3px 8px;border-radius:6px;background:var(--bg2);color:var(--mut)}.ph .on{background:#4a9fd8;color:#fff;font-weight:700}
++details{margin-top:10px;font-size:12px}details li{margin-bottom:4px}
++main{flex:1;display:grid;grid-template-columns:190px minmax(0,1fr) 150px;gap:10px;padding:10px;min-height:0;max-width:1200px;width:100%;margin:0 auto}
++aside{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:10px;font-size:12.5px;overflow:auto}
++@media(max-width:860px){main{grid-template-columns:1fr}aside{order:2}}
++</style>
++</head>
++<body>
++<header><b>AEVUM · TABLERO NUEVO</b><div class="btns"><button data-skin="ruinas">Ruinas</button><button data-skin="circuito">Circuito</button><button data-skin="templo">Templo</button><button id="bTurn">Cambiar turno (disco)</button><button id="bAtk">Ataque directo (demo)</button><button id="bTheme">Tema claro/oscuro</button></div></header>
++<main>
++<aside><div id="detail"></div>
++<details><summary><b>De dónde sale cada idea</b></summary><ul>
++<li><b>Los 19 ejemplos:</b> el detalle vive en el entorno que rodea el campo (torres, pozos, ruinas), el suelo es de poco contraste para que destaquen las cartas, y cada arena tiene un divisor propio (lava, río, puente, línea de luz). Por eso hay tres skins.</li><li><b>MTG Arena:</b> mano en abanico abajo, detalle grande al tocar una carta, botón de acción grande a la derecha y escalera de fases.</li>
++<li><b>Master Duel:</b> zonas fijas y simétricas, mazo y cementerio como pilas laterales, vida visible en un extremo y cámara inclinada.</li>
++<li><b>Runeterra:</b> Banca y campo de batalla separados, ficha de ataque que cambia cada ronda (aquí, el disco), cristal en el lateral y cartas del rival de frente.</li>
++<li><b>Aevum:</b> barrera detrás de cada Banca, ataque directo en línea recta y pulso al cristal, cementerio con carrusel.</li></ul></details></aside>
++<section class="stage"><div id="world" data-skin="ruinas"><div class="ohand"><i></i><i></i><i></i><i></i><i></i></div><div id="board" data-turn="ally">
++<div class="tw" style="left:-30px;top:-30px"></div><div class="tw" style="right:-30px;top:-30px"></div><div class="tw" style="left:-30px;bottom:-30px"></div><div class="tw" style="right:-30px;bottom:-30px"></div>
++<div class="bar" id="barRv" style="--sc:var(--rv)"><svg class="crack" viewBox="0 0 60 44" stroke="#fff" stroke-width="2" fill="none"><path d="M30 0 25 14 38 22 20 44M25 14 8 20M38 22 56 28M30 0 40 10"/></svg></div>
++<div class="crystal rv" id="cRv"><div class="gem"></div><div class="plinth"></div><div class="hp" id="hpRv">20</div></div>
++<div class="crystal al"><div class="gem"></div><div class="plinth"></div><div class="hp">20</div><div class="gems"><i></i><i></i><i></i><i></i><i class="e"></i><i class="e"></i><i class="r"></i><i class="r e"></i></div></div>
++<div class="river"></div><div class="orb"><i class="t"></i><i class="b"></i></div>
++<div class="bar" style="grid-row:7;--sc:var(--al)"></div>
++<div class="pile" style="grid-row:2"><div class="deck" style="--sc:var(--rv)">MAZO<br>33</div></div><div class="pile" style="grid-row:3"><div class="pit" style="--sc:var(--rv)" data-gy><b>CEM.<br>3</b></div></div>
++<div class="pile" style="grid-row:5"><div class="pit" style="--sc:var(--al)" data-gy><b>CEM.<br>2</b></div></div><div class="pile" style="grid-row:6"><div class="deck" style="--sc:var(--al)">MAZO<br>33</div></div>
++<div class="fx" id="fx"></div></div></div>
++<div id="hand"></div></section>
++<aside><button class="act">DECLARAR ATAQUE</button><div class="ph"><span>Robo</span><span class="on">Acciones</span><span>Ataque</span><span>Bloqueo</span><span>Fin</span></div><p style="color:var(--mut)">Tocar una carta de la mano ilumina las casillas libres de tu Banca; tocar una la coloca.</p></aside>
++</main>
++<div id="gy"><div class="box"><b>Cementerio</b> <button style="float:right" onclick="gy.classList.remove('on')">Cerrar</button><div class="row" id="gyRow"></div><small>Pulsar una carta podrá devolverla a Combate, Banca o mano (regla futura del servidor).</small></div></div>
++<script>
++const $=(s,r=document)=>r.querySelector(s),board=$("#board"),gy=$("#gy");
++const D={Centinela:[2,2,4,200,"◈","Al entrar, gana ESCUDO 1."],Cazador:[3,3,2,15,"✦","Hace +1 de daño si ataca sin bloqueo."],Titán:[5,5,6,280,"▲","No puede ser aturdido."],Golpe:[1,0,0,120,"⚡","Hechizo rápido: 2 de daño a una criatura."],Aprendiz:[1,1,2,60,"●","Puede evolucionar a Héroe."],Sombra:[2,2,3,320,"◆","Se revela al atacar."]};
++const mk=(n,o={})=>{const d=D[n],e=document.createElement("div");e.className="card"+(o.down?" down "+o.side:"")+(d[1]===0?" spell":"");e.dataset.n=n;
++e.innerHTML=`<div class="art" style="--h:${d[3]}" data-g="${d[4]}"></div>${o.tag?`<div class="tag">${o.tag}</div>`:""}${d[1]?`<div class="st a">${d[1]}</div><div class="st h">${d[2]}</div>`:""}`;return e};
++const slot=(r,c,side)=>{const s=document.createElement("div");s.className="slot "+side;s.style.gridRow=r;s.style.gridColumn=c+1;s.dataset.r=r;s.dataset.c=c;s.dataset.z=(r===3||r===5)?"c":"b";board.insertBefore(s,$("#fx"));return s};
++for(const [r,side] of [[2,"rv"],[3,"rv"],[5,"al"],[6,"al"]])for(let c=1;c<=5;c++)slot(r,c,side);
++const put=(r,c,card)=>$(`.slot[data-r="${r}"][data-c="${c}"]`).append(card);
++put(2,2,mk("Sombra",{down:1,side:"rv"}));put(2,3,mk("Sombra",{down:1,side:"rv"}));put(2,5,mk("Golpe",{down:1,side:"rv"}));
++put(3,2,mk("Cazador",{tag:"BLOQUEA"}));put(3,4,mk("Titán"));
++put(5,2,mk("Aprendiz"));put(5,4,mk("Cazador",{tag:"ATACA"}));
++put(6,1,mk("Centinela",{tag:"[lista]"}));put(6,3,mk("Golpe",{tag:"[en preparación]"}));
++const hand=$("#hand");let held=null;
++["Titán","Aprendiz","Centinela","Cazador","Golpe"].forEach((n,i)=>{const h=document.createElement("div");h.className="hc";h.style.transform=`rotate(${(i-2)*5}deg) translateY(${Math.abs(i-2)*6}px)`;h.append(mk(n));h.onclick=()=>{held=held===h?null:h;[...hand.children].forEach(x=>x.classList.toggle("sel",x===held));document.querySelectorAll(".slot[data-r='6']").forEach(s=>s.classList.toggle("mark",!!held&&!s.children.length));show(n)};hand.append(h)});
++board.addEventListener("click",e=>{const s=e.target.closest(".slot.mark");if(s&&held){s.append(mk(held.firstChild.dataset.n,{tag:"[en preparación]"}));held.remove();held=null;document.querySelectorAll(".mark").forEach(x=>x.classList.remove("mark"));return}
++const c=e.target.closest(".card");if(c&&!c.classList.contains("down"))show(c.dataset.n);if(e.target.closest("[data-gy]"))openGy()});
++function show(n){const d=D[n];$("#detail").innerHTML=`<div class="big"></div><b>${n}</b> · coste ${d[0]}<p>${d[5]}</p>`;$("#detail .big").append(mk(n))}
++show("Cazador");
++function openGy(){$("#gyRow").innerHTML="";["Aprendiz","Sombra","Golpe","Cazador","Titán"].forEach(n=>{const i=document.createElement("div");i.className="it";i.append(mk(n));$("#gyRow").append(i)});gy.classList.add("on")}
++document.querySelectorAll("[data-skin]").forEach(b=>b.onclick=()=>$("#world").dataset.skin=b.dataset.skin);
++for(let i=0;i<16;i++){const f=document.createElement("i");f.className="fl";f.style.cssText=`left:${Math.random()*100}%;top:${30+Math.random()*65}%;animation-delay:${Math.random()*7}s`;$("#world").append(f)}
++$("#bTurn").onclick=()=>board.dataset.turn=board.dataset.turn==="ally"?"rival":"ally";
++$("#bTheme").onclick=()=>{const r=document.documentElement,dark=r.dataset.theme?r.dataset.theme==="dark":matchMedia("(prefers-color-scheme:dark)").matches;r.dataset.theme=dark?"light":"dark"};
++const R=el=>{let x=0,y=0,e=el;while(e&&e!==board){x+=e.offsetLeft;y+=e.offsetTop;e=e.offsetParent}return{x,y,w:el.offsetWidth,h:el.offsetHeight}};
++let busy=false;$("#bAtk").onclick=async()=>{if(busy)return;busy=true;const src=$('.slot[data-r="5"][data-c="4"] .card'),fx=$("#fx"),s=R(src),b=R($("#barRv")),cr=R($("#cRv")).x+R($("#cRv")).w/2,cy=R($("#cRv")).y+R($("#cRv")).h/2;
++const cl=src.cloneNode(true);Object.assign(cl.style,{position:"absolute",left:s.x+"px",top:s.y+"px",width:s.w+"px",height:s.h+"px"});fx.append(cl);src.style.visibility="hidden";
++const dy=b.y+b.h/2-(s.y+s.h/2),go=cl.animate([{transform:"none"},{transform:`translateY(${dy}px) scale(1.15)`}],{duration:460,easing:"cubic-bezier(.6,0,1,.7)",fill:"forwards"});await go.finished;
++const bar=$("#barRv");bar.style.setProperty("--cx",s.x+s.w/2-b.x+"px");bar.classList.add("hit");
++const dot=document.createElement("div");dot.className="dot";fx.append(dot);const px=s.x+s.w/2,py=b.y+b.h/2;
++await dot.animate([{left:px+"px",top:py+"px"},{left:cr+"px",top:py+"px",offset:.5},{left:cr+"px",top:cy+"px"}],{duration:700,easing:"ease-in-out",fill:"forwards"}).finished;dot.remove();
++const c=$("#cRv");c.classList.add("shake");const f=document.createElement("div");f.className="float";f.textContent="-3";Object.assign(f.style,{left:cr+"px",top:cy-30+"px"});fx.append(f);$("#hpRv").textContent="17";
++await cl.animate([{transform:`translateY(${dy}px) scale(1.15)`},{transform:"none"}],{duration:380,easing:"ease-out",fill:"forwards"}).finished;cl.remove();src.style.visibility="";
++setTimeout(()=>{bar.classList.remove("hit");c.classList.remove("shake");f.remove();$("#hpRv").textContent="20";busy=false},700)};
++</script>
++</body>
++</html>
+diff --git a/tests/smoke/_stubs.luau b/tests/smoke/_stubs.luau
+new file mode 100644
+index 0000000..5a82464
+--- /dev/null
++++ b/tests/smoke/_stubs.luau
+@@ -0,0 +1,86 @@
++-- Arnés de humo (solo desarrollo): simula lo mínimo de la API de Roblox y ejecuta los escenarios de Board3D.
++local V3mt = {}
++V3mt.__index = V3mt
++local function V3(x, y, z) return setmetatable({ X = x or 0, Y = y or 0, Z = z or 0 }, V3mt) end
++V3mt.__add = function(a, b) return V3(a.X + b.X, a.Y + b.Y, a.Z + b.Z) end
++V3mt.__sub = function(a, b) return V3(a.X - b.X, a.Y - b.Y, a.Z - b.Z) end
++V3mt.__mul = function(a, b)
++	if type(a) == "number" then return V3(a * b.X, a * b.Y, a * b.Z) end
++	if type(b) == "number" then return V3(a.X * b, a.Y * b, a.Z * b) end
++	return V3(a.X * b.X, a.Y * b.Y, a.Z * b.Z)
++end
++V3mt.__div = function(a, b) return V3(a.X / b, a.Y / b, a.Z / b) end
++V3mt.__unm = function(a) return V3(-a.X, -a.Y, -a.Z) end
++V3mt.Magnitude = nil
++local Vector3 = { new = V3 }
++local Vector2 = { new = function(x, y) return V3(x, y, 0) end }
++local anyMt = {}
++anyMt.__index = function(t, k) return setmetatable({}, anyMt) end
++anyMt.__call = function() return setmetatable({}, anyMt) end
++anyMt.__mul = function() return setmetatable({}, anyMt) end
++local function any() return setmetatable({}, anyMt) end
++local CFrame = setmetatable({ new = function() return any() end, Angles = function() return any() end, lookAt = function() return any() end }, anyMt)
++local Color3 = { fromRGB = function(r, g, b) return { r, g, b } end, new = function() return {} end }
++local UDim2 = { new = function() return {} end, fromOffset = function() return {} end, fromScale = function() return {} end }
++local UDim = { new = function() return {} end }
++local TweenInfo = { new = function() return {} end }
++local Enum = setmetatable({}, { __index = function(_, a) return setmetatable({}, { __index = function(_, b) return a .. "." .. b end }) end })
++local RaycastParams = { new = function() return {} end }
++
++local deferred = {}
++local task = { defer = function(f) deferred[#deferred + 1] = f end, wait = function() end }
++local function flushDeferred()
++	local d = deferred
++	deferred = {}
++	for _, f in ipairs(d) do f() end
++end
++
++local function signal()
++	local s = { fns = {} }
++	function s:Connect(f) table.insert(self.fns, f) return { Disconnect = function() end } end
++	return s
++end
++
++local instMethods = {}
++local function newInstance(class)
++	local props, attrs = { ClassName = class }, {}
++	local o = {}
++	setmetatable(o, {
++		__index = function(_, k)
++			if props[k] ~= nil then return props[k] end
++			if k == "Destroy" or k == "PivotTo" or k == "ScaleTo" then return function() end end
++			if k == "SetAttribute" then return function(_, n, v) attrs[n] = v end end
++			if k == "GetAttribute" then return function(_, n) return attrs[n] end end
++			if k == "FindFirstAncestorOfClass" then return function() return o end end
++			if k == "GetPropertyChangedSignal" then return function() return signal() end end
++			if k == "Play" or k == "Cancel" then return function() end end
++			return nil
++		end,
++		__newindex = function(_, k, v) props[k] = v end,
++	})
++	return o
++end
++local Instance = { new = newInstance }
++
++local renderSteppedFns = {}
++local camera = newInstance("Camera")
++camera.ViewportSize = V3(1920, 1080, 0)
++camera.FieldOfView = 45
++camera.ScreenPointToRay = function() return { Origin = V3(0, 0, 0), Direction = V3(0, 0, -1) } end
++camera.ViewportPointToRay = function(_, x, y) return { Origin = V3(0, 530, 80), Direction = V3((x - 960) / 3000, -0.8, -0.6) } end
++local workspace = { CurrentCamera = camera, GetPropertyChangedSignal = function() return signal() end, Raycast = function() return nil end }
++local services = {
++	RunService = { RenderStepped = { Connect = function(_, f) renderSteppedFns[#renderSteppedFns + 1] = f return { Disconnect = function() end } end } },
++	TweenService = { Create = function() return { Play = function() end, Cancel = function() end } end },
++	Lighting = {},
++	UserInputService = { InputBegan = signal(), InputEnded = signal() },
++}
++local game = { GetService = function(_, n) return services[n] end }
++local modules = {}
++local script = { Parent = setmetatable({}, { __index = function(_, name)
++	if not modules[name] then modules[name] = require("./" .. name) end
++	return modules[name]
++end }) }
++
++
++return { Vector3=Vector3, Vector2=Vector2, CFrame=CFrame, Color3=Color3, UDim2=UDim2, UDim=UDim, TweenInfo=TweenInfo, Enum=Enum, RaycastParams=RaycastParams, Instance=Instance, workspace=workspace, game=game, task=task, script=script, renderSteppedFns=renderSteppedFns, flushDeferred=flushDeferred, V3=V3 }
+diff --git a/tests/smoke/run.py b/tests/smoke/run.py
+new file mode 100644
+index 0000000..112ad5c
+--- /dev/null
++++ b/tests/smoke/run.py
+@@ -0,0 +1,35 @@
++#!/usr/bin/env python3
++"""Prueba de humo de Board3D sin Roblox Studio.
++
++El CLI de `luau` no trae la API de Roblox y sus globales son de solo lectura, así que este script:
++  1) copia los módulos de UI3D a una carpeta temporal,
++  2) les inyecta como variables locales las simulaciones de _stubs.luau (Instance, Vector3, game, workspace...),
++  3) ejecuta smoke.luau, que reproduce los escenarios reales: jugar, robar, avanzar con volteo,
++     cementerio, devolver a la mano, evolución y partida nueva.
++Uso:  python3 tests/smoke/run.py [ruta al ejecutable de luau]   (por defecto `luau`)
++Si cambias la API de Roblox que usa UI3D, amplía _stubs.luau.
++"""
++import os, shutil, subprocess, sys, tempfile
++
++root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
++ui3d = os.path.join(root, "src", "StarterPlayerScripts", "AEVUM", "UI3D")
++luau = sys.argv[1] if len(sys.argv) > 1 else "luau"
++mods = [f[:-5] for f in os.listdir(ui3d) if f.endswith(".luau")]
++inj = (
++    'local realRequire = require\n'
++    'local S = realRequire("./_stubs")\n'
++    'local function require(m) if type(m) == "table" then return m end return realRequire(m) end\n'
++    'local Vector3, Vector2, CFrame, Color3, UDim2, UDim, TweenInfo, Enum, RaycastParams, Instance, workspace, game, task, script = '
++    'S.Vector3, S.Vector2, S.CFrame, S.Color3, S.UDim2, S.UDim, S.TweenInfo, S.Enum, S.RaycastParams, S.Instance, S.workspace, S.game, S.task, S.script\n'
++)
++tmp = tempfile.mkdtemp()
++try:
++    for m in mods:
++        src = open(os.path.join(ui3d, m + ".luau"), encoding="utf-8").read()
++        open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
++    shutil.copy(os.path.join(root, "src", "ReplicatedStorage", "AEVUM", "CardDatabase.luau"), tmp)
++    for f in ("_stubs.luau", "smoke.luau"):
++        shutil.copy(os.path.join(os.path.dirname(__file__), f), tmp)
++    sys.exit(subprocess.call([luau, "smoke.luau"], cwd=tmp))
++finally:
++    shutil.rmtree(tmp, ignore_errors=True)
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+new file mode 100644
+index 0000000..5993808
+--- /dev/null
++++ b/tests/smoke/smoke.luau
+@@ -0,0 +1,112 @@
++local S = require("./_stubs")
++local V3, renderSteppedFns, flushDeferred = S.V3, S.renderSteppedFns, S.flushDeferred
++local Cards = require("./CardDatabase").Data
++local Board3D = require("./Board3D")
++
++local function expect(c, m) if not c then error(m, 2) end end
++
++local handRects = {}
++local render, show, hide, api = Board3D.create({
++	cards = Cards, theme = { sel = 1, tgt = 2, atk = 3 },
++	handRect = function(uid) return V3(300 + uid * 50, 900, 0), V3(140, 200, 0) end,
++	isTarget = function() return false end, activatableAt = function() return nil end,
++	onMyBench = function() end, onMyCombat = function() end, onOppBench = function() end, onOppCombat = function() end,
++	onSlot = function() end, onAvatar = function() end, requestRender = function() end,
++})
++show()
++local step = renderSteppedFns[1]
++local function run(seconds)
++	for _ = 1, math.floor(seconds * 60) do step(1 / 60) flushDeferred() end
++end
++
++local function mineInst(uid, cardId, extra)
++	local t = { uid = uid, cardId = cardId, damage = 0, prepared = true, atk = Cards[cardId].atk, maxHp = Cards[cardId].hp, shield = 0 }
++	for k, v in pairs(extra or {}) do t[k] = v end
++	return t
++end
++local function emptyZone() return { false, false, false, false, false } end
++local function mkView(o)
++	return {
++		you = 1, turn = o.turn or 3, attackerIdx = 1, over = false,
++		waiting = { player = 1, kind = o.kind or "Actions", timeLeft = 30 },
++		me = { hp = 20, shield = 0, deck = o.deck or 30, hand = o.hand or {}, bench = o.bench or emptyZone(), combat = o.combat or emptyZone(), graveyard = o.grave or {} },
++		opp = { hp = 20, shield = 0, deck = o.odeck or 30, hand = o.ohand or 5, bench = o.obench or emptyZone(), combat = o.ocombat or emptyZone(), graveyard = o.ograve or {} },
++	}
++end
++local function state(view, extra)
++	local s = { view = view, blockPairs = {}, attackSel = {}, blockPick = nil, sel = nil, targetMode = nil }
++	for k, v in pairs(extra or {}) do s[k] = v end
++	return s
++end
++local function hnd(uid, cardId) return { uid = uid, cardId = cardId, cost = Cards[cardId].cost } end
++
++-- 1) primer estado: todo aparece sin animar
++render(state(mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })))
++expect(api.debug().live == 0 and api.debug().flyers == 0, "primer estado vacío")
++
++-- 2) juego uid 1 a la Banca (casilla 2): sale de la mano
++local bench = emptyZone() bench[2] = mineInst(1, "APRENDIZ", { prepared = false })
++render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE") }, bench = bench })))
++expect(api.debug().live == 1, "la carta jugada aparece en el tablero")
++run(1.5)
++expect(api.debug().flyers == 0, "sin vuelos pendientes tras jugar")
++
++-- 3) el rival coloca una carta boca abajo en su Banca (casilla 3)
++local obench = emptyZone() obench[3] = { uid = 100, faceDown = true }
++render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE") }, bench = bench, obench = obench, ohand = 4 })))
++expect(api.debug().live == 2, "la carta boca abajo del rival aparece")
++run(1.5)
++
++-- 4) robo propio y del rival
++render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE"), hnd(4, "TITAN") }, bench = bench, obench = obench, ohand = 5, deck = 29, odeck = 29 })))
++local d = api.debug()
++expect(d.flyers == 2 and d.hidden == 1 and api.isHandHidden(4), "robos: 2 vuelos y la carta 4 oculta en la mano 2D")
++run(2)
++d = api.debug()
++expect(d.flyers == 0 and d.hidden == 0, "los robos terminan y la mano deja de estar oculta")
++
++-- 5) avance: mi uid 1 Banca->Combate; la carta del rival se revela y pasa a Combate
++local combat = emptyZone() combat[1] = mineInst(1, "APRENDIZ")
++local ocombat = emptyZone() ocombat[1] = { uid = 100, cardId = "CAZADOR", damage = 0, atk = 3, maxHp = 2, shield = 0 }
++local hand5 = { hnd(2, "CENTINELA"), hnd(3, "GOLPE"), hnd(4, "TITAN") }
++render(state(mkView({ hand = hand5, combat = combat, ocombat = ocombat, ohand = 5, deck = 29, odeck = 29, kind = "AttackDeclare" })))
++expect(api.debug().live == 2 and api.debug().flyers == 0, "avance: sin cartas nuevas ni vuelos")
++run(1.5)
++
++-- 6) marcadores: con ataque declarado y una criatura en Banca seleccionada para atacar
++local bench6 = emptyZone() bench6[1] = mineInst(9, "CENTINELA")
++render(state(mkView({ hand = hand5, bench = bench6, combat = combat, ocombat = ocombat, ohand = 5, deck = 29, odeck = 29, kind = "AttackDeclare" }),
++	{ attackSel = { [9] = true } }))
++run(1)
++
++-- 7) muertes: la mía va al cementerio y la del rival también (cardId en la lista de cementerio)
++render(state(mkView({ hand = hand5, bench = bench6, combat = emptyZone(), ocombat = emptyZone(), ohand = 5, deck = 29, odeck = 29,
++	grave = { "APRENDIZ" }, ograve = { "CAZADOR" } })))
++expect(api.debug().flyers == 2 and api.debug().live == 1, "dos cartas van al cementerio")
++run(2)
++expect(api.debug().flyers == 0, "los vuelos al cementerio terminan")
++
++-- 8) devolver al tablero->mano: la carta 9 de mi Banca aparece en mi mano
++render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE"), hnd(4, "TITAN"), hnd(9, "CENTINELA") }, deck = 29, odeck = 29,
++	grave = { "APRENDIZ" }, ograve = { "CAZADOR" }, ohand = 5 })))
++expect(api.debug().flyers == 1 and api.isHandHidden(9), "devolución: vuelo hacia la mano y carta 9 oculta")
++run(2)
++expect(api.debug().flyers == 0 and not api.isHandHidden(9), "la devolución termina")
++
++-- 9) evolución: Aprendiz en Combate + Héroe en mano -> misma carta cambia de forma y la carta de la mano se funde
++local c9 = emptyZone() c9[2] = mineInst(7, "APRENDIZ")
++local h9 = { hnd(8, "HEROE"), hnd(2, "CENTINELA") }
++render(state(mkView({ hand = h9, combat = c9, deck = 29, odeck = 29, grave = { "APRENDIZ" }, ograve = { "CAZADOR" } })))
++run(1.5)
++local c9b = emptyZone() c9b[2] = mineInst(7, "HEROE")
++render(state(mkView({ hand = { hnd(2, "CENTINELA") }, combat = c9b, deck = 29, odeck = 29, grave = { "APRENDIZ" }, ograve = { "CAZADOR" } })))
++expect(api.debug().flyers == 1, "evolución: la carta de evolución vuela hacia la criatura")
++run(2)
++expect(api.debug().flyers == 0 and api.debug().live == 1, "evolución termina")
++
++-- 10) partida nueva (turno menor) y reset: se limpia todo
++render(state(mkView({ turn = 1, hand = { hnd(1, "APRENDIZ") } })))
++expect(api.debug().live == 0 and api.debug().flyers == 0, "partida nueva limpia el tablero")
++api.reset()
++hide()
++print("Board3D smoke OK")
+-- 
+2.43.0
+

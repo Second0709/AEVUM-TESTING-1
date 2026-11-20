@@ -1,0 +1,1581 @@
+From fbae90d8121b0f00968c66058d7c37138a739c1b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 18 Nov 2026 07:38:08 +0000
+Subject: [PATCH 2/2] =?UTF-8?q?feat(3d):=20cartas=203D,=20animaciones=20y?=
+ =?UTF-8?q?=20entrada=20t=C3=A1ctil?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- CardView: modelo 3D reutilizable (pool) con arte, costo, ATK/VIDA, estado, reverso y anillo de resalte
+- Motion: pistas de animación puras con destinos 'vivos' (probadas en tests/Motion.spec.luau)
+- Board3D: reconciliador por uid; animaciones mano→Banca, Banca→Combate con volteo, evolución,
+  robo, tablero→mano y envío al cementerio; resaltes, marcadores de destino y contadores
+- Input3D: ratón y toque con raycast; casillas vacías, cartas y cristales
+- Banca propia visible para el jugador, la del rival boca abajo
+- BoardBuilder: zonas táctiles y marcadores de casilla
+- Hand: registra botones y deja hueco mientras la carta 3D aterriza
+- RightPanel: atacantes en orden fijo para prever su destino en Combate
+- AevumClient: conexión mano 2D ↔ tablero 3D, tocar casilla para colocar, tocar vacío para cancelar
+---
+ docs/PLAN_TABLERO_3D.md                       |   7 +
+ .../AEVUM/AevumClient.client.luau             |  53 +-
+ src/StarterPlayerScripts/AEVUM/UI/Hand.luau   |  24 +-
+ .../AEVUM/UI/RightPanel.luau                  |  11 +-
+ .../AEVUM/UI3D/Board3D.luau                   | 681 +++++++++++++++++-
+ .../AEVUM/UI3D/BoardBuilder.luau              |  25 +-
+ .../AEVUM/UI3D/CardView.luau                  | 251 +++++++
+ .../AEVUM/UI3D/Input3D.luau                   |  65 ++
+ .../AEVUM/UI3D/Layout.luau                    |  30 +-
+ .../AEVUM/UI3D/Motion.luau                    |  96 +++
+ tests/Motion.spec.luau                        |  91 +++
+ 11 files changed, 1306 insertions(+), 28 deletions(-)
+ create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau
+ create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/Input3D.luau
+ create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/Motion.luau
+ create mode 100644 tests/Motion.spec.luau
+
+diff --git a/docs/PLAN_TABLERO_3D.md b/docs/PLAN_TABLERO_3D.md
+index e8c9b65..e7a8e1d 100644
+--- a/docs/PLAN_TABLERO_3D.md
++++ b/docs/PLAN_TABLERO_3D.md
+@@ -50,6 +50,9 @@ Sirve para retomar el trabajo en un chat nuevo sin perder contexto.
+ | Arte | **Arte por carta** (lo produce el equipo, necesita tiempo). Mientras tanto, imagen provisional. |
+ | Calidad gráfica | **Opción manual** para dispositivos de bajo rendimiento. |
+ | Sonido y partículas | **Sí**, referencias: Yu-Gi-Oh! Duel Links, MTG Arena y Legends of Runeterra. |
++| Banca propia vs rival | Tus cartas de Banca se ven **boca arriba para ti**; las del rival, **boca abajo** hasta que atacan (se voltean al avanzar a Combate). |
++| Animaciones de carta | mano → Banca · Banca → Combate (con volteo si se revela) · evolución (la carta de la mano se funde con la criatura) · robar del mazo a la mano · tablero → mano · tablero/mano → cementerio. Se deducen comparando el `view` por `uid`; no usan `events`. |
++| Entrada 3D | Tocar/clic en cartas, casillas vacías y cristales (raycast). Con una carta de la mano seleccionada se iluminan las casillas libres de Banca y tocar una la coloca ahí (`PlayCard` con `slot`). Al declarar ataque se marcan las casillas de Combate donde entrarán los atacantes (izquierda → derecha). |
+ | Primer paso técnico | Construir con `Parts` y materiales de Roblox. Mallas de Blender solo si hace falta más adelante. |
+ 
+ ---
+@@ -68,6 +71,10 @@ Sirve para retomar el trabajo en un chat nuevo sin perder contexto.
+ 
+ ---
+ 
++> **Estado:** Fase 1 hecha. Cartas 3D, animaciones y `Input3D` (adelanto de las Fases 2, 3 y parte de la 4) en el segundo commit.
++> **Nota:** ninguna regla actual devuelve una carta del tablero a la mano; la animación existe y se dispara sola si un uid de tu Banca/Combate aparece en tu mano, pero hoy no la provoca ninguna carta.
++> **Pendiente:** arena más clara y detallada (parche aparte), flechas de objetivo, cementerio navegable, reversos de la mano rival, sonidos y partículas.
++
+ ## 4. Arquitectura propuesta
+ 
+ Carpeta nueva: `src/StarterPlayerScripts/AEVUM/UI3D/`
+diff --git a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+index bf96840..d61b2af 100644
+--- a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
++++ b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+@@ -92,9 +92,11 @@ local pauseBtn = PauseUI.create(gui, C, Widgets, Remotes)
+ 
+ local shownTurn = nil
+ local lastEventId = 0
++local board3dApi = nil -- API del tablero 3D (reset, isHandHidden); nil con el tablero 2D
+ local hideBanner, showBanner = BannerUI.create(gameFrame, new, TweenService)
+ local overlay, overText, overReason = OverlayUI.create(gui, C, Widgets, Remotes, function()
+ 	hideBanner()
++	if board3dApi then board3dApi.reset() end
+ 	shownTurn = nil
+ 	lastEventId = 0
+ 	gameFrame.Visible = false
+@@ -337,15 +339,60 @@ local renderBoard = BoardUI.create({
+ 	onOppBench = onOppBench, onOppCombat = onOppCombat, onMyCombat = onMyCombat, onMyBench = onMyBench,
+ 	getState = getPanelState,
+ })
+--- Tablero 3D (Fase 1: escena estática y cámara). Se muestra desde el lobby como fondo.
+-local renderBoard3D, show3D = nil, nil
++-- Tablero 3D. Se muestra desde el lobby como fondo.
++-- Mano 2D <-> tablero 3D: Hand registra cada botón y el 3D lo usa como origen/destino de los vuelos.
++local handWidgets = {}
++local function registerHand(uid, widget) handWidgets[uid] = widget end
++local function handRect(uid)
++	local w = handWidgets[uid]
++	if w and w.Parent then return w.AbsolutePosition + w.AbsoluteSize / 2, w.AbsoluteSize end
++	return nil
++end
++
++-- Tocar una casilla vacía: con una carta de la mano seleccionada, la coloca ahí; si no, cancela la selección
++local function onSlot3D(side, zone, slot)
++	if side == "Self" and zone == "Bench" and sel and sel.zone == "hand" and mine() and kind() == "Actions" and not targetMode then
++		for _, h in ipairs(view.me.hand) do
++			if h.uid == sel.uid then
++				if Cards[h.cardId].evolveFrom then break end -- las evoluciones se juegan desde el panel derecho
++				send({ type = "PlayCard", uid = h.uid, slot = slot })
++				return
++			end
++		end
++	end
++	if targetMode or sel then
++		targetMode, sel = nil, nil
++		playSound("Deselect")
++		render()
++	end
++end
++local function onMiss3D()
++	if targetMode or sel then
++		targetMode, sel = nil, nil
++		playSound("Deselect")
++		render()
++	end
++end
++local function onAvatar3D(side)
++	tryTarget(side, "Avatar", 0, nil)
++end
++
++local renderBoard3D, show3D, hide3D = nil, nil, nil
+ if use3D then
+-	renderBoard3D, show3D = Board3DUI.create({ quality = ClientCfg.Quality })
++	renderBoard3D, show3D, hide3D, board3dApi = Board3DUI.create({
++		quality = ClientCfg.Quality, cards = Cards, theme = C, handRect = handRect,
++		isTarget = isTarget, activatableAt = activatableAt,
++		onMyBench = onMyBench, onMyCombat = onMyCombat, onOppBench = onOppBench, onOppCombat = onOppCombat,
++		onSlot = onSlot3D, onAvatar = onAvatar3D, onMiss = onMiss3D,
++		requestRender = function() render() end,
++	})
+ 	show3D()
+ end
+ local renderHand = HandUI.create({
+ 	parent = handFrame, clear = clear, theme = C, cards = Cards, cardBtn = cardBtn, cardText = cardText,
+ 	isTarget = isTarget, onHand = onHand, getState = getPanelState,
++	register = registerHand,
++	isHidden = function(uid) return board3dApi ~= nil and board3dApi.isHandHidden(uid) end,
+ })
+ 
+ local renderLeft = LeftPanelUI.create({
+diff --git a/src/StarterPlayerScripts/AEVUM/UI/Hand.luau b/src/StarterPlayerScripts/AEVUM/UI/Hand.luau
+index 8069a44..9b0d21a 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI/Hand.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI/Hand.luau
+@@ -1,15 +1,29 @@
+ local Hand = {}
+ 
++-- ctx.register(uid, instancia)  guarda el botón (o su hueco) para que el tablero 3D sepa dónde está cada carta.
++-- ctx.isHidden(uid)             true mientras la carta 3D todavía está volando hacia la mano: se deja un hueco.
+ function Hand.create(ctx)
+ 	return function()
+ 		local state = ctx.getState()
+ 		ctx.clear(ctx.parent)
+ 		for idx, inst in ipairs(state.view.me.hand) do
+-			local stroke
+-			if ctx.isTarget("Self", "Hand", idx, inst.uid) then stroke = ctx.theme.tgt
+-			elseif state.sel and state.sel.uid == inst.uid then stroke = ctx.theme.sel end
+-			ctx.cardBtn(ctx.parent, UDim2.new(0.105, 0, 1, 0), ctx.cardText(inst.cardId, inst), ctx.theme.card,
+-				function() ctx.onHand(inst, idx) end, stroke, ctx.cards[inst.cardId].art)
++			local widget
++			if ctx.isHidden and ctx.isHidden(inst.uid) then
++				-- Hueco transparente del mismo tamaño. Se llama "TextButton" para conservar el orden del UIListLayout
++				-- (se ordena por nombre: un "Frame" se colaría delante de los botones).
++				widget = Instance.new("Frame")
++				widget.Name = "TextButton"
++				widget.Size = UDim2.new(0.105, 0, 1, 0)
++				widget.BackgroundTransparency = 1
++				widget.Parent = ctx.parent
++			else
++				local stroke
++				if ctx.isTarget("Self", "Hand", idx, inst.uid) then stroke = ctx.theme.tgt
++				elseif state.sel and state.sel.uid == inst.uid then stroke = ctx.theme.sel end
++				widget = ctx.cardBtn(ctx.parent, UDim2.new(0.105, 0, 1, 0), ctx.cardText(inst.cardId, inst), ctx.theme.card,
++					function() ctx.onHand(inst, idx) end, stroke, ctx.cards[inst.cardId].art)
++			end
++			if ctx.register then ctx.register(inst.uid, widget) end
+ 		end
+ 	end
+ end
+diff --git a/src/StarterPlayerScripts/AEVUM/UI/RightPanel.luau b/src/StarterPlayerScripts/AEVUM/UI/RightPanel.luau
+index 0d295b4..179f76f 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI/RightPanel.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI/RightPanel.luau
+@@ -133,9 +133,16 @@ function RightPanel.create(ctx)
+ 				end
+ 				add("No responder (pasar)", ctx.theme.btnOff, function() ctx.send({ type = "Pass" }) end)
+ 			elseif kind == "AttackDeclare" then
+-				local n = 0
++				-- Orden fijo (Banca de izquierda a derecha, luego Combate): el servidor coloca a los atacantes
++				-- de la Banca en las primeras casillas libres de Combate en este orden, y el tablero 3D lo anticipa.
+ 				local uids = {}
+-				for uid in pairs(state.attackSel) do n += 1 uids[#uids + 1] = uid end
++				for _, inst in ipairs(state.view.me.bench) do
++					if inst and state.attackSel[inst.uid] then uids[#uids + 1] = inst.uid end
++				end
++				for _, inst in ipairs(state.view.me.combat) do
++					if inst and state.attackSel[inst.uid] then uids[#uids + 1] = inst.uid end
++				end
++				local n = #uids
+ 				if n > 0 then add(("Declarar ataque (%d)"):format(n), ctx.theme.atk, function() ctx.send({ type = "DeclareAttack", attackers = uids }) end) end
+ 				add("No atacar este turno", ctx.theme.btnOff, function() ctx.send({ type = "SkipAttack" }) end)
+ 			elseif kind == "AttackEvolve" then
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+index 72fa941..1d1ed70 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+@@ -1,41 +1,675 @@
+ --!nonstrict
+ -- AEVUM · Tablero 3D: reconciliador (v1.3.0)
+ -- Misma forma que UI/Board.luau: Board3D.create(ctx) devuelve la función de render.
+--- Fase 1: solo escena estática + cámara. `render` aún no dibuja cartas (Fase 2).
++-- Compara el `view` nuevo con el anterior POR UID y decide qué animación toca:
++--   mano → Banca · Banca → Combate (con volteo si se revela) · evolución · robar del mazo ·
++--   tablero → mano · tablero/mano → cementerio.
++-- Los `events` del servidor no se usan: el uid de cada carta ya dice de dónde viene y a dónde va.
+ --
+--- ctx (todo opcional):
+---   origin  Vector3  centro de la mesa en el Workspace (por defecto muy por encima del mapa)
+---   quality "High" | "Low"
++-- Las cartas de tu Banca se ven boca arriba para ti; las del rival, boca abajo hasta que atacan.
++-- Tu mano sigue siendo 2D: las cartas 3D salen y llegan a la posición del botón de la mano.
+ --
+--- Devuelve: render(state), show(), hide()
++-- ctx:
++--   origin, quality, cards (CardDatabase.Data), theme
++--   handRect(uid) -> centro, tamaño del botón de esa carta en la mano (en píxeles) o nil
++--   isTarget(side, zone, slot, uid) · activatableAt(slot)
++--   onMyBench / onMyCombat / onOppBench / onOppCombat (slot, inst) · onSlot(side, zone, index)
++--   onAvatar(side) · onMiss() · requestRender()
++--
++-- Devuelve: render(state), show(), hide(), api { isHandHidden(uid), reset(), debug() }
+ 
++local RunService = game:GetService("RunService")
+ local TweenService = game:GetService("TweenService")
+ 
+ local BoardBuilder = require(script.Parent.BoardBuilder)
+ local CameraRig = require(script.Parent.CameraRig)
++local CardView = require(script.Parent.CardView)
++local Input3D = require(script.Parent.Input3D)
++local Layout = require(script.Parent.Layout)
++local Motion = require(script.Parent.Motion)
+ 
+ local Board3D = {}
+ 
+ local DEFAULT_ORIGIN = Vector3.new(0, 500, 0) -- lejos de cualquier Baseplate del lugar
++local N = 5 -- casillas por zona
++local BLUE = Color3.fromRGB(120, 170, 255)
++local ATK_TAG = Color3.fromRGB(150, 40, 40)
++local BLOCK_TAG = Color3.fromRGB(40, 80, 150)
++local SIDES = { "Self", "Enemy" }
+ 
+ function Board3D.create(ctx)
+ 	ctx = ctx or {}
+ 	local origin = ctx.origin or DEFAULT_ORIGIN
+ 	local quality = ctx.quality or "High"
++	local cardsDb = ctx.cards
++	local theme = ctx.theme
+ 
+-	local scene -- { folder, glow, refs } (se construye una sola vez)
+-	local stopCamera, restoreLighting
++	local scene, cardsFolder, pool
++	local stopCamera, restoreLighting, stepConn, disconnectInput
+ 	local pulses = {}
+ 	local visible = false
+ 
++	local live = {} -- uid -> carta 3D que está en una casilla
++	local flyers = {} -- carta 3D -> true (vuelos que terminan fuera del tablero: se liberan solas)
++	local hidden = {} -- uid de mano -> true mientras su carta 3D todavía está llegando
++	local prev = nil -- snapshot del view anterior
++	local activeMarkers = {} -- clave de casilla -> true
++	local labels = {}
++
++	-- ══════════════ Posiciones y destinos ══════════════
++
++	-- Estado de reposo de una carta en su casilla (se evalúa "en vivo": cambia al seleccionarla)
++	local function restOf(card)
++		local p = Layout.slot(card.side, card.zone, card.slot, N)
++		local lifted = card.selected == true
++		return {
++			x = p.x, y = Layout.CARD_Y + (lifted and Layout.SEL_LIFT or 0), z = p.z,
++			flip = card.faceUp and 0 or math.pi, tilt = lifted and math.rad(12) or 0, scale = 1,
++		}
++	end
++
++	-- Un punto de la pantalla -> estado 3D de una carta que "mira a la cámara" con ese tamaño aparente
++	local function screenState(center, pixelWidth, flip)
++		local cam = workspace.CurrentCamera
++		local vs = cam.ViewportSize
++		local tanHalf = math.tan(math.rad(cam.FieldOfView) / 2)
++		local d = (Layout.CARD.w * vs.Y) / (2 * tanHalf * math.max(pixelWidth, 20))
++		d = math.clamp(d, 8, 120)
++		local ray = cam:ViewportPointToRay(center.X, center.Y)
++		local w = ray.Origin + ray.Direction * d
++		return {
++			x = w.X - origin.X, y = w.Y - origin.Y, z = w.Z - origin.Z,
++			tilt = math.rad(90 - CameraRig.PITCH), flip = flip or 0, scale = 1,
++		}
++	end
++
++	-- Dónde está (o estaba) la carta de la mano, en coordenadas 3D. Sin botón: abajo al centro.
++	local function handTarget(uid)
++		local center, size
++		if ctx.handRect then center, size = ctx.handRect(uid) end
++		if not center then
++			local vs = workspace.CurrentCamera.ViewportSize
++			center, size = Vector2.new(vs.X * 0.49, vs.Y * 0.9), Vector2.new(vs.X * 0.07, 0)
++		end
++		return screenState(center, size.X, 0)
++	end
++
++	-- La mano del rival es solo un número: sus cartas salen/entran por el borde superior
++	local function oppHandTarget()
++		local vs = workspace.CurrentCamera.ViewportSize
++		return screenState(Vector2.new(vs.X * 0.49, vs.Y * 0.02), vs.X * 0.05, math.pi)
++	end
++
++	local function deckStart(side)
++		local t = Layout.deckTop(side)
++		return { x = t.x, y = t.y, z = t.z, flip = math.pi, tilt = 0, scale = 0.9 }
++	end
++
++	local function assign(s, t)
++		s.x, s.y, s.z = t.x or 0, t.y or 0, t.z or 0
++		s.flip, s.tilt, s.scale = t.flip or 0, t.tilt or 0, t.scale or 1
++	end
++
++	local function settle(card, dur)
++		return { dur = dur or 0.2, to = function() return restOf(card) end, ease = "backOut" }
++	end
++
++	local function later(fn)
++		task.defer(fn)
++	end
++
++	-- ══════════════ Cartas ══════════════
++
++	local function newCard(uid, e, start)
++		local card = pool.acquire()
++		card.uid = uid
++		card.side, card.zone, card.slot = e.side, e.zone, e.slot
++		card.faceUp = not e.faceDown
++		card.inst = e.inst
++		card.phase = (uid * 0.737) % 6.28
++		card.model:SetAttribute("Uid", uid)
++		CardView.setSide(card, e.side)
++		if e.cardId then CardView.setContent(card, cardsDb, e.cardId, e.inst) end
++		assign(card.s, start or restOf(card))
++		live[uid] = card
++		return card
++	end
++
++	-- Carta temporal (sin casilla) para vuelos de/hacia mano, mazo y cementerio
++	local function newFlyer(side, cardId, inst, start, faceUp)
++		local card = pool.acquire()
++		card.model:SetAttribute("Uid", nil)
++		card.side = side
++		card.faceUp = faceUp
++		CardView.setSide(card, side)
++		if cardId then CardView.setContent(card, cardsDb, cardId, inst) end
++		assign(card.s, start)
++		flyers[card] = true
++		return card
++	end
++
++	local function endFlyer(card)
++		flyers[card] = nil
++		pool.release(card)
++	end
++
++	-- Entrada a una casilla desde `start` (mano, borde del rival o mazo)
++	local function playIn(card, delay)
++		Motion.play(card.track, {
++			{ delay = delay or 0, dur = 0.55, arc = 3, ease = "quadInOut",
++				to = function() local r = restOf(card) r.y += 0.7 return r end },
++			settle(card),
++		})
++	end
++
++	-- Banca → Combate. Si la carta se revela (rival), se alza y se voltea antes de avanzar.
++	local function advance(card, e)
++		local wantUp = not e.faceDown
++		local flipNeeded = card.faceUp ~= wantUp
++		card.zone, card.slot = e.zone, e.slot
++		if flipNeeded then
++			if e.cardId then CardView.setContent(card, cardsDb, e.cardId, e.inst) end
++			card.faceUp = wantUp
++		end
++		Motion.play(card.track, {
++			{ dur = flipNeeded and 0.42 or 0.22, ease = "quadOut",
++				to = { y = Layout.HOVER_Y, flip = flipNeeded and (wantUp and 0 or math.pi) or nil } },
++			{ dur = 0.5, arc = 1.2, ease = "quadInOut",
++				to = function() local r = restOf(card) r.y += 0.5 return r end },
++			settle(card),
++		})
++	end
++
++	-- Volteo en su sitio (por ejemplo, una carta boca abajo que se revela sin cambiar de zona)
++	local function flipInPlace(card, e)
++		local wantUp = not e.faceDown
++		if e.cardId then CardView.setContent(card, cardsDb, e.cardId, e.inst) end
++		card.faceUp = wantUp
++		Motion.play(card.track, {
++			{ dur = 0.4, ease = "quadOut", to = { y = Layout.HOVER_Y, flip = wantUp and 0 or math.pi } },
++			settle(card, 0.25),
++		})
++	end
++
++	local function slide(card, e)
++		card.slot = e.slot
++		Motion.play(card.track, {
++			{ dur = 0.35, arc = 0.8, ease = "quadInOut", to = function() return restOf(card) end },
++			settle(card, 0.15),
++		})
++	end
++
++	-- Evolución: la misma carta cambia de forma (mismo uid, otro cardId)
++	local function evolveBump(card, e)
++		CardView.setContent(card, cardsDb, e.cardId, e.inst)
++		Motion.play(card.track, {
++			{ dur = 0.15, ease = "quadOut", to = function() local r = restOf(card) r.y += 1 r.scale = 1.25 return r end },
++			{ dur = 0.3, ease = "backOut", to = function() return restOf(card) end },
++		})
++	end
++
++	-- Tablero → mano. mine: la carta llega a tu mano 2D (se oculta su botón hasta que aterriza).
++	local function toHand(card, uid, mine)
++		if mine then hidden[uid] = true end
++		flyers[card] = true
++		live[uid] = nil
++		card.model:SetAttribute("Uid", nil)
++		Motion.play(card.track, {
++			{ dur = 0.18, ease = "quadOut", to = { y = Layout.HOVER_Y, flip = mine and 0 or math.pi } },
++			{ dur = 0.55, arc = 2, ease = "quadInOut",
++				to = function() return mine and handTarget(uid) or oppHandTarget() end,
++				onEnd = function()
++					endFlyer(card)
++					if mine then
++						hidden[uid] = nil
++						if ctx.requestRender then later(ctx.requestRender) end
++					end
++				end },
++		})
++	end
++
++	-- Cualquier carta (ya sea del tablero o un vuelo) → cementerio de `side`, mostrándose boca arriba
++	local function toGraveyard(card, side, cardId)
++		if cardId and card.cardId ~= cardId then CardView.setContent(card, cardsDb, cardId, nil) end
++		card.faceUp = true
++		flyers[card] = true
++		if card.uid then live[card.uid] = nil end
++		card.model:SetAttribute("Uid", nil)
++		local drop = Layout.graveDrop(side)
++		Motion.play(card.track, {
++			{ dur = 0.3, ease = "quadOut", to = { y = Layout.HOVER_Y - 0.6, flip = 0, tilt = 0 } },
++			{ dur = 0.55, arc = 1.5, ease = "quadInOut", to = { x = drop.x, y = drop.y + 1.2, z = drop.z, scale = 0.6 } },
++			{ dur = 0.15, ease = "quadInOut", to = { y = drop.y, scale = 0.05 }, onEnd = function() endFlyer(card) end },
++		})
++	end
++
++	-- Carta de evolución: vuela hasta la criatura que evoluciona y se funde con ella
++	local function toEvolveTarget(card, slot)
++		local p = Layout.slot("Self", "Combat", slot, N)
++		flyers[card] = true
++		Motion.play(card.track, {
++			{ dur = 0.2, ease = "quadOut", to = { y = Layout.HOVER_Y } },
++			{ dur = 0.5, arc = 1.5, ease = "quadInOut", to = { x = p.x, y = Layout.CARD_Y + 0.8, z = p.z, scale = 0.5, tilt = 0 } },
++			{ dur = 0.15, ease = "quadInOut", to = { scale = 0.05 }, onEnd = function() endFlyer(card) end },
++		})
++	end
++
++	local function vanish(card)
++		if card.uid then live[card.uid] = nil end
++		card.model:SetAttribute("Uid", nil)
++		flyers[card] = true
++		Motion.play(card.track, {
++			{ dur = 0.25, ease = "quadInOut", to = { scale = 0.05, y = Layout.CARD_Y + 1 }, onEnd = function() endFlyer(card) end },
++		})
++	end
++
++	-- Robo propio: del mazo a tu mano 2D
++	local function drawMine(uid, handInst, delay)
++		local card = newFlyer("Self", handInst.cardId, handInst, deckStart("Self"), false)
++		hidden[uid] = true
++		Motion.play(card.track, {
++			{ delay = delay, dur = 0.22, ease = "quadOut", to = { y = Layout.HOVER_Y, flip = 0, scale = 1 } },
++			{ dur = 0.5, arc = 1.5, ease = "quadInOut", to = function() return handTarget(uid) end,
++				onEnd = function()
++					endFlyer(card)
++					hidden[uid] = nil
++					if ctx.requestRender then later(ctx.requestRender) end
++				end },
++		})
++	end
++
++	-- Robo del rival: del mazo rival a su borde (su mano es un número)
++	local function drawOpp(delay)
++		local card = newFlyer("Enemy", nil, nil, deckStart("Enemy"), false)
++		Motion.play(card.track, {
++			{ delay = delay, dur = 0.22, ease = "quadOut", to = { y = Layout.HOVER_Y, scale = 1 } },
++			{ dur = 0.5, arc = 1.5, ease = "quadInOut", to = function() return oppHandTarget() end,
++				onEnd = function() endFlyer(card) end },
++		})
++	end
++
++	-- ══════════════ Snapshot y diferencias ══════════════
++
++	local ORDER = { { "Self", "Bench" }, { "Self", "Combat" }, { "Enemy", "Bench" }, { "Enemy", "Combat" } }
++
++	local function snapshot(view)
++		local players = { Self = view.me, Enemy = view.opp }
++		local snap = {
++			turn = view.turn, you = view.you, hand = {}, handOrder = {}, board = {}, order = {},
++			oppHand = view.opp.hand, deck = { Self = view.me.deck, Enemy = view.opp.deck },
++			grave = { Self = {}, Enemy = {} },
++		}
++		for _, h in ipairs(view.me.hand) do
++			snap.hand[h.uid] = h
++			snap.handOrder[#snap.handOrder + 1] = h
++		end
++		for _, pair in ipairs(ORDER) do
++			local side, zone = pair[1], pair[2]
++			local pl = players[side]
++			local list = zone == "Bench" and pl.bench or pl.combat
++			for i = 1, N do
++				local inst = list[i]
++				if inst then
++					local e = { uid = inst.uid, side = side, zone = zone, slot = i, cardId = inst.cardId,
++						faceDown = inst.faceDown == true, inst = inst }
++					snap.board[inst.uid] = e
++					snap.order[#snap.order + 1] = e
++				end
++			end
++		end
++		for _, side in ipairs(SIDES) do
++			for i, id in ipairs(players[side].graveyard) do snap.grave[side][i] = id end
++		end
++		return snap
++	end
++
++	local function resetCards()
++		for _, card in pairs(live) do pool.release(card) end
++		live = {}
++		for card in pairs(flyers) do pool.release(card) end
++		flyers = {}
++		hidden = {}
++		prev = nil
++	end
++
++	-- Primer estado (o partida nueva): todo aparece ya colocado, sin animar
++	local function populate(cur)
++		for _, e in ipairs(cur.order) do newCard(e.uid, e, nil) end
++	end
++
++	local function reconcile(cur)
++		local p = prev
++
++		-- Entradas nuevas del cementerio de cada bando (la lista es de cardId, no de uid)
++		local newGrave = { Self = {}, Enemy = {} }
++		for _, side in ipairs(SIDES) do
++			for i = #p.grave[side] + 1, #cur.grave[side] do
++				table.insert(newGrave[side], cur.grave[side][i])
++			end
++		end
++		local function takeGrave(side, cardId)
++			local list = newGrave[side]
++			for i, id in ipairs(list) do
++				if id == cardId then table.remove(list, i) return id end
++			end
++			return nil
++		end
++
++		-- A) Cartas que están en el tablero ahora
++		local entering = { Self = 0, Enemy = 0 }
++		for _, e in ipairs(cur.order) do
++			local card = live[e.uid]
++			if not card then
++				local start
++				if e.side == "Self" then
++					start = p.hand[e.uid] and handTarget(e.uid) or deckStart("Self")
++				else
++					start = oppHandTarget()
++				end
++				card = newCard(e.uid, e, start)
++				playIn(card, entering[e.side] * 0.14)
++				entering[e.side] += 1
++			else
++				local zoneChanged = card.zone ~= e.zone
++				local faceChanged = card.faceUp == e.faceDown
++				card.inst = e.inst
++				if zoneChanged then
++					advance(card, e)
++				elseif faceChanged then
++					flipInPlace(card, e)
++				elseif card.slot ~= e.slot then
++					slide(card, e)
++				elseif e.cardId and card.cardId and e.cardId ~= card.cardId then
++					evolveBump(card, e)
++				end
++			end
++		end
++
++		-- B) Cartas que estaban en el tablero y ya no: a la mano, al cementerio o desaparecen
++		local gone = {}
++		for uid, card in pairs(live) do
++			if not cur.board[uid] then gone[#gone + 1] = card end
++		end
++		table.sort(gone, function(a, b) return a.uid < b.uid end)
++		local unknown = { Self = {}, Enemy = {} }
++		for _, card in ipairs(gone) do
++			if card.side == "Self" and cur.hand[card.uid] then
++				toHand(card, card.uid, true)
++			elseif card.cardId and takeGrave(card.side, card.cardId) then
++				toGraveyard(card, card.side, card.cardId)
++			elseif card.cardId == nil or not card.faceUp then
++				table.insert(unknown[card.side], card) -- carta boca abajo del rival: su identidad la dirá el cementerio
++			elseif card.side == "Enemy" then
++				toHand(card, card.uid, false)
++			else
++				vanish(card)
++			end
++		end
++		for _, side in ipairs(SIDES) do
++			for _, card in ipairs(unknown[side]) do
++				local id = table.remove(newGrave[side], 1)
++				if id then toGraveyard(card, side, id)
++				elseif side == "Enemy" then toHand(card, card.uid, false)
++				else vanish(card) end
++			end
++		end
++
++		-- C) Cartas de TU mano que se usaron sin quedar en el tablero: evolución o cementerio
++		local claimed = {}
++		for uid, inst in pairs(p.hand) do
++			if not cur.hand[uid] and not cur.board[uid] then
++				local target
++				for _, e in ipairs(cur.order) do
++					local before = p.board[e.uid]
++					if e.side == "Self" and e.zone == "Combat" and e.cardId == inst.cardId and before
++						and before.cardId ~= inst.cardId and not claimed[e.uid] then
++						target = e
++						claimed[e.uid] = true
++						break
++					end
++				end
++				local fly = newFlyer("Self", inst.cardId, inst, handTarget(uid), true)
++				if target then
++					toEvolveTarget(fly, target.slot)
++				elseif takeGrave("Self", inst.cardId) then
++					toGraveyard(fly, "Self", inst.cardId)
++				else
++					endFlyer(fly)
++				end
++			end
++		end
++
++		-- D) Robos propios: uids nuevos en tu mano que no vienen del tablero
++		local k = 0
++		for _, h in ipairs(cur.handOrder) do
++			if not p.hand[h.uid] and not p.board[h.uid] then
++				drawMine(h.uid, h, k * 0.18)
++				k += 1
++			end
++		end
++
++		-- E) Robos del rival (su mano es un número: usamos lo que baja su mazo)
++		local oppDraws = math.min(4, p.deck.Enemy - cur.deck.Enemy)
++		for i = 1, oppDraws do drawOpp((i - 1) * 0.18) end
++
++		-- F) Entradas de cementerio del rival que nadie reclamó: salieron de su mano (descarte / evolución fallida)
++		for _, id in ipairs(newGrave.Enemy) do
++			local fly = newFlyer("Enemy", id, nil, oppHandTarget(), true)
++			toGraveyard(fly, "Enemy", id)
++		end
++	end
++
++	-- ══════════════ Resaltes, marcadores y contadores ══════════════
++
++	local function ensureLabels()
++		if labels.ready or not scene then return end
++		labels.ready = true
++		local function make(adornee, offsetY, size, color)
++			local bb = Instance.new("BillboardGui")
++			bb.Size = UDim2.fromOffset(size.X, size.Y)
++			bb.StudsOffset = Vector3.new(0, offsetY, 0)
++			bb.AlwaysOnTop = true
++			bb.LightInfluence = 0
++			bb.Adornee = adornee
++			bb.Parent = adornee
++			local l = Instance.new("TextLabel")
++			l.Size = UDim2.fromScale(1, 1)
++			l.BackgroundTransparency = 1
++			l.Font = Enum.Font.GothamBlack
++			l.TextScaled = true
++			l.TextColor3 = color
++			l.TextStrokeTransparency = 0.35
++			l.Text = ""
++			l.Parent = bb
++			return l
++		end
++		for _, side in ipairs(SIDES) do
++			local color = BoardBuilder.Palette[side]
++			labels["vital" .. side] = make(scene.refs.vitals[side], 2, Vector2.new(120, 56), color)
++			labels["deck" .. side] = make(scene.refs.decks[side], 1.6, Vector2.new(110, 34), color)
++			labels["grave" .. side] = make(scene.refs.graveyards[side], 1.6, Vector2.new(110, 34), color)
++		end
++	end
++
++	local function setMarker(key, color)
++		local m = scene.refs.markers[key]
++		if m then
++			m.Color = color
++			activeMarkers[key] = true
++		end
++	end
++
++	local function refreshVisuals(state, cur)
++		local view = state.view
++		local waiting = view.waiting
++		local mine = waiting ~= nil and waiting.player == view.you
++		local kind = waiting and waiting.kind or ""
++
++		local atkSet, blockerSet = {}, {}
++		if view.attack then for _, a in ipairs(view.attack.attackers) do atkSet[a] = true end end
++		for a, b in pairs(state.blockPairs or {}) do blockerSet[b] = a end
++		for _, b in ipairs(view.attack and view.attack.blocks or {}) do blockerSet[b.blocker] = b.attacker end
++		local attackSel = state.attackSel or {}
++		local sel = state.sel
++
++		for uid, card in pairs(live) do
++			local e = cur.board[uid]
++			if e then
++				local inst = e.inst
++				card.inst = inst
++				if card.faceUp and e.cardId then CardView.setContent(card, cardsDb, e.cardId, inst) end
++
++				local tag, stroke
++				if e.side == "Self" and e.zone == "Combat" then
++					tag = (attackSel[uid] and "→ ATACARÁ") or (atkSet[uid] and "ATACA") or (blockerSet[uid] and "BLOQUEA") or nil
++					if ctx.isTarget("Self", "Combat", e.slot, uid) then stroke = theme.tgt
++					elseif attackSel[uid] or state.blockPick == uid or (sel and sel.uid == uid) then stroke = theme.sel end
++				elseif e.side == "Self" then
++					tag = inst.prepared and "[lista]" or "[en preparación]"
++					if attackSel[uid] then tag = "→ ATACARÁ" end
++					if state.blockPick == uid then tag = "→ bloqueará" end
++					if blockerSet[uid] then tag = "BLOQUEA" end
++					if ctx.isTarget("Self", "Bench", e.slot, uid) then stroke = theme.tgt
++					elseif attackSel[uid] or state.blockPick == uid or (sel and sel.uid == uid) then stroke = theme.sel
++					elseif ctx.activatableAt(e.slot) then stroke = BLUE end
++				elseif e.zone == "Combat" then
++					tag = (atkSet[uid] and "ATACA") or (blockerSet[uid] and "BLOQUEA") or nil
++					stroke = ctx.isTarget("Enemy", "Combat", e.slot, uid) and theme.tgt or (atkSet[uid] and theme.atk) or nil
++					if kind == "Block" and mine and state.blockPick and atkSet[uid] then stroke = theme.sel end
++				else
++					stroke = ctx.isTarget("Enemy", "Bench", e.slot, uid) and theme.tgt or nil
++				end
++
++				-- Estados de la criatura (solo si es visible)
++				local status = {}
++				if card.faceUp then
++					if (inst.shield or 0) > 0 then table.insert(status, "ESCUDO " .. inst.shield) end
++					if inst.stunned then table.insert(status, "ATURDIDA") end
++					if inst.reflect then table.insert(status, "REFLEJO") end
++				end
++				local text = tag or ""
++				if #status > 0 then text = (text ~= "" and (text .. " · ") or "") .. table.concat(status, " · ") end
++				local tagColor
++				if tag and tag:find("ATAC") then tagColor = ATK_TAG
++				elseif tag and (tag:find("BLOQUE") or tag:find("bloque")) then tagColor = BLOCK_TAG end
++				CardView.setTag(card, text, tagColor)
++				CardView.setRing(card, stroke)
++
++				-- Seleccionada = levantada
++				local raised = (sel and sel.uid == uid and sel.zone ~= "hand") or attackSel[uid] == true or state.blockPick == uid
++				if raised ~= card.selected then
++					card.selected = raised
++					if not card.track.active then
++						Motion.play(card.track, { { dur = 0.15, ease = "quadOut", to = function() return restOf(card) end } })
++					end
++				end
++			end
++		end
++
++		-- Marcadores de casilla
++		for key in pairs(activeMarkers) do scene.refs.markers[key].Transparency = 1 end
++		activeMarkers = {}
++		if mine and kind == "Actions" and not state.targetMode and sel and sel.zone == "hand" then
++			local h = cur.hand[sel.uid]
++			if h and not (cardsDb[h.cardId] and cardsDb[h.cardId].evolveFrom) then
++				for i = 1, N do
++					if not view.me.bench[i] then setMarker(("Self:Bench:%d"):format(i), theme.tgt) end
++				end
++			end
++		end
++		if mine and kind == "AttackDeclare" then
++			local n = 0
++			for uid in pairs(attackSel) do
++				local e = cur.board[uid]
++				if e and e.side == "Self" and e.zone == "Bench" then n += 1 end
++			end
++			-- Los atacantes de la Banca entran de izquierda a derecha en las primeras casillas libres de Combate
++			for _, slot in ipairs(Layout.freeSlots(view.me.combat, n, N)) do
++				setMarker(("Self:Combat:%d"):format(slot), theme.atk)
++			end
++		end
++
++		-- Cristales de vida (objetivo "Avatar") y contadores
++		ensureLabels()
++		for _, side in ipairs(SIDES) do
++			local pl = side == "Self" and view.me or view.opp
++			local crystal = scene.refs.vitals[side]
++			crystal.Color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or BoardBuilder.Palette[side]
++			local shield = (pl.shield or 0) > 0 and (" (+" .. pl.shield .. ")") or ""
++			labels["vital" .. side].Text = tostring(pl.hp) .. shield
++			labels["deck" .. side].Text = "MAZO " .. tostring(pl.deck)
++			labels["grave" .. side].Text = "CEM. " .. tostring(#pl.graveyard)
++		end
++	end
++
++	-- ══════════════ Entrada ══════════════
++
++	local function handleHit(instance)
++		local model = instance:FindFirstAncestorOfClass("Model")
++		local uid = model and model:GetAttribute("Uid")
++		if uid then
++			local card = live[uid]
++			if card and card.inst then
++				if card.side == "Self" then
++					if card.zone == "Combat" then ctx.onMyCombat(card.slot, card.inst) else ctx.onMyBench(card.slot, card.inst) end
++				else
++					if card.zone == "Combat" then ctx.onOppCombat(card.slot, card.inst) else ctx.onOppBench(card.slot, card.inst) end
++				end
++				return
++			end
++		end
++		local kind = instance:GetAttribute("Kind")
++		if kind == "slot" then
++			ctx.onSlot(instance:GetAttribute("Side"), instance:GetAttribute("Zone"), instance:GetAttribute("Index"))
++		elseif kind == "avatar" then
++			ctx.onAvatar(instance:GetAttribute("Side"))
++		elseif ctx.onMiss then
++			ctx.onMiss()
++		end
++	end
++
++	-- ══════════════ Ciclo de vida ══════════════
++
++	local function step(dt)
++		local t = os.clock()
++		for _, card in pairs(live) do
++			local active = Motion.step(card.track, dt)
++			local bob = 0
++			if quality ~= "Low" then
++				card.bob = active and math.max(0, card.bob - dt * 4) or math.min(1, card.bob + dt * 2)
++				bob = 0.08 * card.bob * math.sin(t * 1.6 + card.phase)
++			end
++			CardView.apply(card, origin, bob)
++		end
++		for card in pairs(flyers) do
++			Motion.step(card.track, dt)
++			if flyers[card] then CardView.apply(card, origin, 0) end -- onEnd puede haberla liberado ya
++		end
++		if next(activeMarkers) then
++			local a = 0.5 + 0.15 * math.sin(t * 4)
++			for key in pairs(activeMarkers) do scene.refs.markers[key].Transparency = a end
++		end
++	end
++
+ 	local function show()
+ 		if visible then return end
+ 		visible = true
+-		if not scene then scene = BoardBuilder.build(origin, quality) end
++		if not scene then
++			scene = BoardBuilder.build(origin, quality)
++			cardsFolder = Instance.new("Folder")
++			cardsFolder.Name = "Cartas"
++			cardsFolder.Parent = scene.folder
++			pool = CardView.newPool(cardsFolder, cardsDb, quality)
++		end
+ 		scene.folder.Parent = workspace
+ 		restoreLighting = BoardBuilder.applyLighting(quality)
+ 		stopCamera = CameraRig.start(origin)
+-		-- Brillo suave de los glifos (se omite en calidad baja)
++		stepConn = RunService.RenderStepped:Connect(step)
++		disconnectInput = Input3D.connect({
++			getFilter = function() return { scene.folder } end,
++			onHit = handleHit,
++			onMiss = ctx.onMiss,
++		})
+ 		if quality ~= "Low" then
+ 			local info = TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+ 			for _, p in ipairs(scene.glow) do
+@@ -49,8 +683,11 @@ function Board3D.create(ctx)
+ 	local function hide()
+ 		if not visible then return end
+ 		visible = false
++		if stepConn then stepConn:Disconnect() stepConn = nil end
++		if disconnectInput then disconnectInput() disconnectInput = nil end
+ 		for _, tween in ipairs(pulses) do tween:Cancel() end
+ 		pulses = {}
++		resetCards()
+ 		if scene then
+ 			for _, p in ipairs(scene.glow) do p.Transparency = p.Name:find("Cristal") and 0.1 or 0 end
+ 			scene.folder.Parent = nil
+@@ -59,12 +696,32 @@ function Board3D.create(ctx)
+ 		if restoreLighting then restoreLighting() restoreLighting = nil end
+ 	end
+ 
+-	-- Fase 2: aquí se compara state.view con lo que hay en escena (por uid)
+ 	local function render(state)
+-		if not visible then return end
++		if not visible or not pool then return end
++		local view = state.view
++		local cur = snapshot(view)
++		if not prev or view.turn < prev.turn or view.you ~= prev.you then
++			resetCards()
++			populate(cur)
++		else
++			reconcile(cur)
++		end
++		prev = cur
++		refreshVisuals(state, cur)
+ 	end
+ 
+-	return render, show, hide
++	local api = {
++		isHandHidden = function(uid) return hidden[uid] == true end,
++		reset = resetCards,
++		debug = function()
++			local n, f, h = 0, 0, 0
++			for _ in pairs(live) do n += 1 end
++			for _ in pairs(flyers) do f += 1 end
++			for _ in pairs(hidden) do h += 1 end
++			return { live = n, flyers = f, hidden = h }
++		end,
++	}
++	return render, show, hide, api
+ end
+ 
+ return Board3D
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+index b3b8a33..1eb06cc 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+@@ -34,7 +34,7 @@ function BoardBuilder.build(origin, quality)
+ 	local folder = Instance.new("Folder")
+ 	folder.Name = "AevumBoard3D"
+ 	local glow = {}
+-	local refs = { slots = {}, vitals = {}, decks = {}, graveyards = {} }
++	local refs = { slots = {}, vitals = {}, decks = {}, graveyards = {}, hit = {}, markers = {}, vitalHit = {} }
+ 
+ 	-- Crea una pieza anclada. pos es relativa al centro de la mesa.
+ 	local function part(name, size, pos, color, material, opts)
+@@ -44,13 +44,13 @@ function BoardBuilder.build(origin, quality)
+ 		p.Anchored = true
+ 		p.CanCollide = false
+ 		p.CanTouch = false
+-		p.CanQuery = false -- decorado: no estorba al raycast de la Fase 3
++		p.CanQuery = opts.query == true -- decorado: no estorba al raycast; solo las zonas táctiles lo activan
+ 		p.Size = size
+ 		p.Color = color
+ 		p.Material = material or Enum.Material.Slate
+ 		p.TopSurface = Enum.SurfaceType.Smooth
+ 		p.BottomSurface = Enum.SurfaceType.Smooth
+-		p.CastShadow = high and math.max(size.X, size.Y, size.Z) >= 2
++		p.CastShadow = high and math.max(size.X, size.Y, size.Z) >= 2 and (opts.transparency or 0) < 1
+ 		if opts.transparency then p.Transparency = opts.transparency end
+ 		if opts.shape then p.Shape = opts.shape end
+ 		p.CFrame = CFrame.new(origin + pos) * (opts.rot or CFrame.new())
+@@ -107,7 +107,19 @@ function BoardBuilder.build(origin, quality)
+ 			for i = 1, SLOTS do
+ 				local p = Layout.slot(side, zone, i, SLOTS)
+ 				local name = ("Casilla_%s_%s_%d"):format(side, zone, i)
+-				refs.slots[("%s:%s:%d"):format(side, zone, i)] = socket(name, p.x, p.z, PAL[side], dz)
++				local key = ("%s:%s:%d"):format(side, zone, i)
++				refs.slots[key] = socket(name, p.x, p.z, PAL[side], dz)
++				-- Zona táctil invisible, más generosa que la carta (dedos en móvil)
++				local hit = part("Zona_" .. name, Vector3.new(5, 0.3, 6.6), Vector3.new(p.x, 0.2, p.z), PAL.slot, nil,
++					{ transparency = 1, query = true })
++				hit:SetAttribute("Kind", "slot")
++				hit:SetAttribute("Side", side)
++				hit:SetAttribute("Zone", zone)
++				hit:SetAttribute("Index", i)
++				refs.hit[key] = hit
++				-- Marcador de casilla: se enciende para "puedes colocar aquí" / "aquí irá el atacante"
++				refs.markers[key] = part("Marcador_" .. name, Vector3.new(4.3, 0.04, 5.9), Vector3.new(p.x, 0.17, p.z),
++					PAL.glyph, Enum.Material.Neon, { transparency = 1 })
+ 			end
+ 		end
+ 	end
+@@ -155,6 +167,11 @@ function BoardBuilder.build(origin, quality)
+ 			{ transparency = 0.1, rot = CFrame.Angles(math.rad(45), math.rad(45), 0), glow = true })
+ 		light(crystal, color, 12, 1.2)
+ 		refs.vitals[side] = crystal
++		local vhit = part("ZonaCristal_" .. side, Vector3.new(5, 5, 5), Vector3.new(v.x, 2.6, v.z), PAL.slot, nil,
++			{ transparency = 1, query = true })
++		vhit:SetAttribute("Kind", "avatar")
++		vhit:SetAttribute("Side", side)
++		refs.vitalHit[side] = vhit
+ 
+ 		local d = Layout.deck(side)
+ 		socket("Mazo_" .. side, d.x, d.z, color, sgn * 2.7)
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau b/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau
+new file mode 100644
+index 0000000..9b6c0b5
+--- /dev/null
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau
+@@ -0,0 +1,251 @@
++--!nonstrict
++-- AEVUM · Carta 3D (v1.3.0)
++-- Una carta es un Model reutilizable (pool): cuerpo de oro, cara frontal con SurfaceGui (arte,
++-- nombre, costo, ATK/VIDA, estado), reverso con glifo y un anillo de resalte.
++-- La carta se orienta con el estado de Motion: { x, y, z, flip, tilt, scale }.
++--   Frente = cara superior (+Y). flip = pi la deja boca abajo (se ve el reverso).
++-- Convención de SurfaceGui: en la cara Top el "arriba" del texto apunta a -Z, que es el sentido
++-- en que lee el jugador local (cámara en +Z). Si en Studio el texto saliera al revés,
++-- cambia CardView.FRONT_ROTATION a 180.
++
++local Motion = require(script.Parent.Motion)
++local Layout = require(script.Parent.Layout)
++
++local CardView = {}
++
++CardView.FRONT_ROTATION = 0
++
++local GOLD = Color3.fromRGB(176, 138, 66)
++local CANVAS = Vector2.new(370, 530) -- píxeles de la cara (relación = cara 3.7 x 5.3 studs)
++
++local COLORS = {
++	creature = Color3.fromRGB(34, 44, 78),
++	spell = Color3.fromRGB(70, 42, 96),
++	atk = Color3.fromRGB(176, 52, 52),
++	hp = Color3.fromRGB(46, 130, 78),
++	cost = Color3.fromRGB(214, 170, 78),
++	dark = Color3.fromRGB(14, 16, 30),
++	text = Color3.fromRGB(240, 240, 250),
++	good = Color3.fromRGB(120, 230, 140),
++	bad = Color3.fromRGB(255, 120, 110),
++	Self = Color3.fromRGB(77, 225, 255),
++	Enemy = Color3.fromRGB(255, 90, 170),
++}
++
++local function mk(class, props, parent)
++	local o = Instance.new(class)
++	for k, v in pairs(props) do o[k] = v end
++	o.Parent = parent
++	return o
++end
++
++local function cardPart(name, size, pos, color, material, parent)
++	return mk("Part", {
++		Name = name, Anchored = true, CanCollide = false, CanTouch = false, CanQuery = true, CastShadow = false,
++		Size = size, Color = color, Material = material, TopSurface = Enum.SurfaceType.Smooth,
++		BottomSurface = Enum.SurfaceType.Smooth, CFrame = CFrame.new(pos),
++	}, parent)
++end
++
++local function label(parent, props)
++	local base = { BackgroundTransparency = 1, TextColor3 = COLORS.text, Font = Enum.Font.GothamBold, TextScaled = true,
++		TextWrapped = true, Text = "" }
++	for k, v in pairs(props) do base[k] = v end
++	return mk("TextLabel", base, parent)
++end
++
++local function buildModel(quality)
++	local W, D = Layout.CARD.w, Layout.CARD.d
++	local model = Instance.new("Model")
++	model.Name = "Carta"
++
++	local body = cardPart("Cuerpo", Vector3.new(W, 0.22, D), Vector3.new(0, 0, 0), GOLD, Enum.Material.Metal, model)
++	local front = cardPart("Frente", Vector3.new(W - 0.3, 0.02, D - 0.3), Vector3.new(0, 0.12, 0), COLORS.creature,
++		Enum.Material.SmoothPlastic, model)
++	local back = cardPart("Reverso", Vector3.new(W - 0.3, 0.02, D - 0.3), Vector3.new(0, -0.12, 0), Color3.fromRGB(34, 28, 50),
++		Enum.Material.SmoothPlastic, model)
++	model.PrimaryPart = body
++
++	-- ── Cara frontal ──
++	local fg = mk("SurfaceGui", { Name = "Cara", Face = Enum.NormalId.Top, SizingMode = Enum.SurfaceGuiSizingMode.FixedSize,
++		CanvasSize = CANVAS, LightInfluence = 0, Brightness = 1.15, AlwaysOnTop = false }, front)
++	local root = mk("Frame", { Name = "Raiz", Size = UDim2.fromScale(1, 1), BackgroundColor3 = COLORS.creature,
++		BorderSizePixel = 0, Rotation = CardView.FRONT_ROTATION }, fg)
++	local art = mk("ImageLabel", { Name = "Arte", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(350, 300),
++		BackgroundColor3 = COLORS.dark, BorderSizePixel = 0, ScaleType = Enum.ScaleType.Crop, Image = "" }, root)
++	local nameBar = mk("Frame", { Name = "NombreBarra", Position = UDim2.fromOffset(10, 262), Size = UDim2.fromOffset(350, 48),
++		BackgroundColor3 = COLORS.dark, BackgroundTransparency = 0.25, BorderSizePixel = 0 }, root)
++	local nameLabel = label(nameBar, { Name = "Nombre", Position = UDim2.fromOffset(8, 2), Size = UDim2.new(1, -16, 1, -4) })
++	mk("UITextSizeConstraint", { MaxTextSize = 34, MinTextSize = 14 }, nameLabel)
++	local costBadge = mk("Frame", { Name = "Costo", Position = UDim2.fromOffset(10, 10), Size = UDim2.fromOffset(84, 84),
++		BackgroundColor3 = COLORS.cost, BorderSizePixel = 0 }, root)
++	mk("UICorner", { CornerRadius = UDim.new(1, 0) }, costBadge)
++	mk("UIStroke", { Color = COLORS.dark, Thickness = 4 }, costBadge)
++	local costLabel = label(costBadge, { Name = "Valor", Size = UDim2.fromScale(1, 1), TextColor3 = COLORS.dark,
++		Font = Enum.Font.GothamBlack })
++	mk("UITextSizeConstraint", { MaxTextSize = 64, MinTextSize = 20 }, costLabel)
++
++	local tagBar = mk("Frame", { Name = "EstadoBarra", Position = UDim2.fromOffset(10, 318), Size = UDim2.fromOffset(350, 54),
++		BackgroundColor3 = COLORS.dark, BackgroundTransparency = 0.2, BorderSizePixel = 0, Visible = false }, root)
++	local tagLabel = label(tagBar, { Name = "Estado", Position = UDim2.fromOffset(8, 2), Size = UDim2.new(1, -16, 1, -4) })
++	mk("UITextSizeConstraint", { MaxTextSize = 40, MinTextSize = 14 }, tagLabel)
++
++	local statRow = mk("Frame", { Name = "Stats", Position = UDim2.fromOffset(10, 384), Size = UDim2.fromOffset(350, 126),
++		BackgroundTransparency = 1 }, root)
++	local function badge(name, x, color, title)
++		local f = mk("Frame", { Name = name, Position = UDim2.fromOffset(x, 0), Size = UDim2.fromOffset(168, 126),
++			BackgroundColor3 = color, BorderSizePixel = 0 }, statRow)
++		mk("UICorner", { CornerRadius = UDim.new(0, 14) }, f)
++		mk("UIStroke", { Color = COLORS.dark, Thickness = 4 }, f)
++		label(f, { Name = "Titulo", Position = UDim2.fromOffset(8, 4), Size = UDim2.new(1, -16, 0, 30), Text = title,
++			TextColor3 = Color3.fromRGB(255, 235, 215) })
++		local v = label(f, { Name = "Valor", Position = UDim2.fromOffset(0, 32), Size = UDim2.new(1, 0, 1, -34),
++			Font = Enum.Font.GothamBlack })
++		mk("UITextSizeConstraint", { MaxTextSize = 100, MinTextSize = 30 }, v)
++		return f, v
++	end
++	local atkBadge, atkValue = badge("Ataque", 0, COLORS.atk, "ATK")
++	local hpBadge, hpValue = badge("Vida", 182, COLORS.hp, "VIDA")
++	local spellLabel = label(statRow, { Name = "Hechizo", Size = UDim2.fromScale(1, 1), Visible = false,
++		BackgroundTransparency = 0, BackgroundColor3 = COLORS.dark })
++	mk("UICorner", { CornerRadius = UDim.new(0, 14) }, spellLabel)
++
++	-- ── Reverso: marco de oro y rombo del color del bando ──
++	local bg = mk("SurfaceGui", { Name = "Cara", Face = Enum.NormalId.Bottom, SizingMode = Enum.SurfaceGuiSizingMode.FixedSize,
++		CanvasSize = CANVAS, LightInfluence = 0, Brightness = 1.1 }, back)
++	local broot = mk("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(34, 28, 50), BorderSizePixel = 0 }, bg)
++	mk("UIStroke", { Color = GOLD, Thickness = 10 }, broot)
++	local outer = mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++		Size = UDim2.fromOffset(210, 210), Rotation = 45, BackgroundColor3 = GOLD, BorderSizePixel = 0 }, broot)
++	local inner = mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++		Size = UDim2.fromOffset(176, 176), Rotation = 45, BackgroundColor3 = Color3.fromRGB(20, 18, 34), BorderSizePixel = 0 }, broot)
++	local core = mk("Frame", { Name = "Nucleo", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++		Size = UDim2.fromOffset(90, 90), Rotation = 45, BackgroundColor3 = COLORS.Self, BorderSizePixel = 0 }, broot)
++
++	-- ── Anillo de resalte ──
++	local ring = mk("SelectionBox", { Name = "Anillo", Adornee = body, LineThickness = 0.07, Visible = false,
++		Color3 = COLORS.text, SurfaceColor3 = COLORS.text, SurfaceTransparency = 0.82 }, model)
++
++	return {
++		model = model, body = body, front = front, back = back, ring = ring, core = core,
++		ui = { root = root, art = art, name = nameLabel, cost = costLabel, tagBar = tagBar, tag = tagLabel,
++			atkBadge = atkBadge, atk = atkValue, hpBadge = hpBadge, hp = hpValue, spell = spellLabel },
++	}
++end
++
++-- Crea un pool de cartas dentro de `folder` (Instance). cardsDb: CardDatabase.Data
++function CardView.newPool(folder, cardsDb, quality)
++	local pool = { free = {}, folder = folder, cards = cardsDb, quality = quality }
++
++	function pool.acquire()
++		local card = table.remove(pool.free)
++		if not card then
++			card = buildModel(quality)
++			card.s = Motion.newState()
++			card.track = Motion.newTrack(card.s)
++		end
++		card.uid = nil
++		card.cardId = nil
++		card.contentKey = nil
++		card.tagKey = nil
++		card.faceUp = true
++		card.selected = false
++		card.bob = 0
++		card.appliedScale = 1
++		card.model:ScaleTo(1)
++		card.ring.Visible = false
++		Motion.stop(card.track)
++		card.model.Parent = folder
++		return card
++	end
++
++	function pool.release(card)
++		Motion.stop(card.track)
++		card.ring.Visible = false
++		card.model:SetAttribute("Uid", nil)
++		card.model.Parent = nil
++		table.insert(pool.free, card)
++	end
++
++	return pool
++end
++
++-- Estado de Motion -> posición en el mundo. origin: Vector3 del centro de la mesa.
++function CardView.apply(card, origin, bobY)
++	local s = card.s
++	local cf = CFrame.new(origin.X + s.x, origin.Y + s.y + (bobY or 0), origin.Z + s.z)
++		* CFrame.Angles(s.tilt, 0, 0) * CFrame.Angles(0, 0, s.flip)
++	card.model:PivotTo(cf)
++	if math.abs(s.scale - card.appliedScale) > 0.002 then
++		card.appliedScale = s.scale
++		card.model:ScaleTo(math.max(s.scale, 0.05))
++	end
++end
++
++-- Color del núcleo del reverso (cian = jugador, rosa = rival)
++function CardView.setSide(card, side)
++	card.core.BackgroundColor3 = COLORS[side] or COLORS.Self
++end
++
++-- Contenido de la cara frontal. inst es la instancia del view (puede ser nil: solo plantilla de la carta).
++function CardView.setContent(card, cardsDb, cardId, inst)
++	local c = cardsDb[cardId]
++	if not c then return end
++	local atk, hp, maxHp, cost
++	if c.type == "Creature" then
++		maxHp = (inst and inst.maxHp) or c.hp
++		atk = (inst and inst.atk) or c.atk
++		hp = math.max(0, maxHp - ((inst and inst.damage) or 0))
++	end
++	cost = (inst and inst.cost) or (c.evolveFrom and c.evolveCost or c.cost)
++	local key = table.concat({ cardId, tostring(atk), tostring(hp), tostring(maxHp), tostring(cost) }, "|")
++	if card.contentKey == key then return end
++	card.contentKey = key
++	card.cardId = cardId
++
++	local ui = card.ui
++	local isCreature = c.type == "Creature"
++	local base = isCreature and COLORS.creature or COLORS.spell
++	ui.root.BackgroundColor3 = base
++	card.front.Color = base
++	ui.art.Image = type(c.art) == "string" and c.art or ""
++	ui.name.Text = c.name
++	ui.cost.Text = tostring(cost)
++	ui.atkBadge.Visible = isCreature
++	ui.hpBadge.Visible = isCreature
++	ui.spell.Visible = not isCreature
++	if isCreature then
++		ui.atk.Text = tostring(atk)
++		ui.atk.TextColor3 = (atk > c.atk) and COLORS.good or ((atk < c.atk) and COLORS.bad or COLORS.text)
++		ui.hp.Text = tostring(hp)
++		ui.hp.TextColor3 = (hp < maxHp) and COLORS.bad or ((maxHp > c.hp) and COLORS.good or COLORS.text)
++	else
++		ui.spell.Text = c.speed == "Fast" and "HECHIZO · RÁPIDO" or "HECHIZO · LENTO"
++	end
++end
++
++-- Franja de estado ("ATACA", "[en preparación]", "ESCUDO 2"…). nil/"" la oculta.
++function CardView.setTag(card, text, color)
++	text = text or ""
++	local key = text .. tostring(color)
++	if card.tagKey == key then return end
++	card.tagKey = key
++	card.ui.tagBar.Visible = text ~= ""
++	card.ui.tag.Text = text
++	card.ui.tagBar.BackgroundColor3 = color or COLORS.dark
++end
++
++-- Anillo de resalte (selección, objetivo, atacante…). nil lo apaga.
++function CardView.setRing(card, color)
++	if color then
++		card.ring.Color3 = color
++		card.ring.SurfaceColor3 = color
++		card.ring.Visible = true
++	else
++		card.ring.Visible = false
++	end
++end
++
++CardView.Colors = COLORS
++
++return CardView
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Input3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Input3D.luau
+new file mode 100644
+index 0000000..1657519
+--- /dev/null
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Input3D.luau
+@@ -0,0 +1,65 @@
++--!nonstrict
++-- AEVUM · Entrada 3D (v1.3.0)
++-- Un solo sistema para ratón y pantalla táctil. Un "toque" es pulsar y soltar sin arrastrar
++-- (más de TAP_SLOP píxeles se considera gesto y se ignora). La GUI 2D tiene prioridad:
++-- si un botón consumió la pulsación (gameProcessed), no se lanza el rayo.
++--
++-- opts:
++--   getFilter() -> { Instance }   lo único contra lo que se lanza el rayo (cartas y zonas táctiles)
++--   onHit(instance)               se llama con la parte tocada
++--   onMiss()                      se llama si el toque no dio a nada del tablero
++
++local UserInputService = game:GetService("UserInputService")
++
++local Input3D = {}
++
++local TAP_SLOP = 14 -- píxeles
++local RAY_LENGTH = 600
++
++local function isPointer(input)
++	return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
++end
++
++-- Devuelve una función `disconnect`.
++function Input3D.connect(opts)
++	local starts = {} -- input -> posición inicial (solo pulsaciones que la GUI no consumió)
++	local params = RaycastParams.new()
++	params.FilterType = Enum.RaycastFilterType.Include
++
++	local function cast(position)
++		local camera = workspace.CurrentCamera
++		if not camera then return nil end
++		-- ScreenPointToRay ya descuenta el inset de la GUI, igual que input.Position
++		local ray = camera:ScreenPointToRay(position.X, position.Y)
++		params.FilterDescendantsInstances = opts.getFilter()
++		local result = workspace:Raycast(ray.Origin, ray.Direction * RAY_LENGTH, params)
++		return result and result.Instance or nil
++	end
++
++	local began = UserInputService.InputBegan:Connect(function(input, processed)
++		if processed or not isPointer(input) then return end
++		starts[input] = Vector2.new(input.Position.X, input.Position.Y)
++	end)
++
++	local ended = UserInputService.InputEnded:Connect(function(input)
++		local start = starts[input]
++		if not start then return end
++		starts[input] = nil
++		local pos = Vector2.new(input.Position.X, input.Position.Y)
++		if (pos - start).Magnitude > TAP_SLOP then return end
++		local hit = cast(pos)
++		if hit then
++			opts.onHit(hit)
++		elseif opts.onMiss then
++			opts.onMiss()
++		end
++	end)
++
++	return function()
++		began:Disconnect()
++		ended:Disconnect()
++		starts = {}
++	end
++end
++
++return Input3D
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+index 28ade75..bd64bd5 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+@@ -17,8 +17,10 @@ Layout.ROW_BENCH = 12.8 -- |z| de la fila de Banca
+ Layout.SIDE_X = 17.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
+ 
+ -- Alturas (Y = 0 es la superficie de la mesa)
+-Layout.CARD_Y = 0.2 -- centro de una carta tumbada
+-Layout.HOVER_Y = 3 -- altura de una carta "levantada"
++Layout.CARD_Y = 0.6 -- centro de una carta que flota sobre su casilla
++Layout.SEL_LIFT = 0.9 -- cuánto se eleva una carta seleccionada
++Layout.HOVER_Y = 2.8 -- altura a la que se alza una carta antes de volar a otra zona
++Layout.PILE_Y = 0.95 -- altura de entrada/salida en mazo y cementerio
+ Layout.ORB_Y = 4 -- altura del orbe central
+ 
+ local function sign(side)
+@@ -52,6 +54,30 @@ function Layout.graveyard(side)
+ 	return { x = Layout.SIDE_X, z = sign(side) * Layout.ROW_COMBAT }
+ end
+ 
++-- Punto de salida de las cartas robadas (cima del mazo)
++function Layout.deckTop(side)
++	local d = Layout.deck(side)
++	return { x = d.x, y = Layout.PILE_Y, z = d.z }
++end
++
++-- Punto de llegada de las cartas que van al cementerio
++function Layout.graveDrop(side)
++	local g = Layout.graveyard(side)
++	return { x = g.x, y = Layout.PILE_Y, z = g.z }
++end
++
++-- Primeros `n` índices libres de una zona. `list` usa false/nil para casilla vacía (como el view).
++-- Sirve para prever a qué casillas de Combate irán los atacantes que salen de la Banca.
++function Layout.freeSlots(list, n, count)
++	count = count or 5
++	local out = {}
++	for i = 1, count do
++		if #out >= n then break end
++		if not list[i] then out[#out + 1] = i end
++	end
++	return out
++end
++
+ -- Orbe central. attacker: "Self" | "Enemy" | nil (neutro). Se desplaza hacia quien ataca.
+ function Layout.orb(attacker)
+ 	local z = 0
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Motion.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Motion.luau
+new file mode 100644
+index 0000000..d3408d2
+--- /dev/null
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Motion.luau
+@@ -0,0 +1,96 @@
++--!nonstrict
++-- AEVUM · Movimiento de cartas 3D (v1.3.0)
++-- Pura: solo números (sin Vector3/CFrame), así se puede probar con `luau`.
++-- Cada carta tiene un "estado" { x, y, z, flip, tilt, scale } y una "pista" (track) que ejecuta
++-- una secuencia de tramos. CardView convierte el estado en CFrame.
++--   flip  = giro sobre el eje largo de la carta (0 = cara arriba, pi = boca abajo)
++--   tilt  = inclinación hacia la cámara (rad)
++-- Un tramo: { dur, to = tabla | función, arc, ease, delay, onStart, onEnd }
++--   `to` puede ser una función: se evalúa en cada paso, así el destino puede ser "vivo"
++--   (por ejemplo, la posición de la mano en pantalla, que cambia al redibujarse).
++
++local Motion = {}
++
++local FIELDS = { "x", "y", "z", "flip", "tilt", "scale" }
++
++local function clamp01(t) return t < 0 and 0 or (t > 1 and 1 or t) end
++
++Motion.ease = {
++	linear = function(t) return t end,
++	quadOut = function(t) return 1 - (1 - t) * (1 - t) end,
++	quadInOut = function(t)
++		if t < 0.5 then return 2 * t * t end
++		return 1 - ((-2 * t + 2) ^ 2) / 2
++	end,
++	sineInOut = function(t) return -(math.cos(math.pi * t) - 1) / 2 end,
++	backOut = function(t)
++		local c1 = 1.70158
++		local c3 = c1 + 1
++		return 1 + c3 * (t - 1) ^ 3 + c1 * (t - 1) ^ 2
++	end,
++}
++
++function Motion.newState(init)
++	local s = { x = 0, y = 0, z = 0, flip = 0, tilt = 0, scale = 1 }
++	for k, v in pairs(init or {}) do s[k] = v end
++	return s
++end
++
++function Motion.newTrack(state)
++	return { s = state, segs = nil, i = 0, t = 0, from = nil, started = false, active = false }
++end
++
++-- Empieza una secuencia nueva desde el estado actual (cancela la anterior sin llamar a sus onEnd)
++function Motion.play(track, segs)
++	track.segs, track.i, track.t, track.from, track.started, track.active = segs, 1, 0, nil, false, #segs > 0
++end
++
++function Motion.stop(track)
++	track.segs, track.from, track.active = nil, nil, false
++end
++
++-- Avanza `dt` segundos. Devuelve true si la pista sigue activa.
++function Motion.step(track, dt)
++	if not track.active then return false end
++	local s = track.s
++	local remaining = dt
++	while true do
++		local seg = track.segs[track.i]
++		if not seg then
++			track.active = false
++			return false
++		end
++		if not track.from then
++			track.from = {}
++			for _, f in ipairs(FIELDS) do track.from[f] = s[f] end
++			track.t = -(seg.delay or 0)
++			track.started = false
++		end
++		track.t += remaining
++		remaining = 0
++		if track.t < 0 then return true end
++		if not track.started then
++			track.started = true
++			if seg.onStart then seg.onStart() end
++		end
++		local dur = seg.dur or 0
++		local alpha = dur <= 0 and 1 or clamp01(track.t / dur)
++		local e = (Motion.ease[seg.ease or "quadInOut"] or Motion.ease.quadInOut)(alpha)
++		local to = type(seg.to) == "function" and seg.to() or seg.to or {}
++		for _, f in ipairs(FIELDS) do
++			local target = to[f]
++			if target ~= nil then s[f] = track.from[f] + (target - track.from[f]) * e end
++		end
++		if seg.arc then s.y += seg.arc * math.sin(math.pi * alpha) end
++		if alpha < 1 then return true end
++		local leftover = track.t - dur
++		if seg.onEnd then seg.onEnd() end
++		if track.segs == nil or not track.active then return false end -- onEnd pudo detener/reemplazar la pista
++		if track.segs[track.i] ~= seg then return track.active end -- onEnd lanzó una secuencia nueva
++		track.i += 1
++		track.from = nil
++		remaining = leftover
++	end
++end
++
++return Motion
+diff --git a/tests/Motion.spec.luau b/tests/Motion.spec.luau
+new file mode 100644
+index 0000000..2e9a6c8
+--- /dev/null
++++ b/tests/Motion.spec.luau
+@@ -0,0 +1,91 @@
++local Motion = require("../src/StarterPlayerScripts/AEVUM/UI3D/Motion")
++local Layout = require("../src/StarterPlayerScripts/AEVUM/UI3D/Layout")
++
++local function expect(c, m) if not c then error(m, 2) end end
++local function near(a, b, e) return math.abs(a - b) < (e or 1e-6) end
++
++-- Un tramo simple llega exactamente al destino y llama a onEnd una vez
++do
++	local s = Motion.newState({ x = 0, y = 0 })
++	local t = Motion.newTrack(s)
++	local ends = 0
++	Motion.play(t, { { dur = 1, to = { x = 10, y = 4 }, onEnd = function() ends += 1 end } })
++	for _ = 1, 11 do Motion.step(t, 0.1) end -- 11: el acumulado en coma flotante de 10 pasos puede quedar en 0.9999
++	expect(near(s.x, 10) and near(s.y, 4), "debe llegar al destino")
++	expect(ends == 1 and not t.active, "onEnd una sola vez y pista terminada")
++end
++
++-- Arco: a mitad del tramo la altura supera la de ambos extremos, y al final vuelve a la exacta
++do
++	local s = Motion.newState({ y = 1 })
++	local t = Motion.newTrack(s)
++	Motion.play(t, { { dur = 1, to = { y = 1 }, arc = 3, ease = "linear" } })
++	Motion.step(t, 0.5)
++	expect(near(s.y, 4), "el arco debe sumar su altura a mitad de camino")
++	Motion.step(t, 0.5)
++	expect(near(s.y, 1), "al terminar vuelve a la altura de destino")
++end
++
++-- Secuencia con retraso y arrastre del tiempo sobrante entre tramos
++do
++	local s = Motion.newState({ x = 0 })
++	local t = Motion.newTrack(s)
++	local log = {}
++	Motion.play(t, {
++		{ dur = 1, delay = 0.5, to = { x = 1 }, ease = "linear", onStart = function() log[#log + 1] = "a" end },
++		{ dur = 1, to = { x = 3 }, ease = "linear", onStart = function() log[#log + 1] = "b" end },
++	})
++	Motion.step(t, 0.4)
++	expect(s.x == 0 and #log == 0, "durante el retraso no se mueve ni arranca")
++	Motion.step(t, 0.6) -- 0.5 de retraso + 0.5 de tramo
++	expect(near(s.x, 0.5) and log[1] == "a", "el tramo arranca tras el retraso")
++	Motion.step(t, 1.0) -- termina tramo 1 (0.5) y avanza 0.5 en el tramo 2
++	expect(log[2] == "b" and near(s.x, 2), "el sobrante pasa al siguiente tramo")
++	Motion.step(t, 5)
++	expect(near(s.x, 3) and not t.active, "termina en el destino final")
++end
++
++-- Destino "vivo": si el destino se mueve durante el vuelo, llega al nuevo destino
++do
++	local s = Motion.newState({ x = 0 })
++	local t = Motion.newTrack(s)
++	local target = { x = 10 }
++	Motion.play(t, { { dur = 1, to = function() return target end, ease = "linear" } })
++	Motion.step(t, 0.5)
++	target.x = 20
++	Motion.step(t, 0.5)
++	expect(near(s.x, 20), "debe terminar en el destino actualizado")
++end
++
++-- Reemplazar una secuencia en mitad del vuelo parte desde la posición actual (sin saltos)
++do
++	local s = Motion.newState({ x = 0 })
++	local t = Motion.newTrack(s)
++	Motion.play(t, { { dur = 1, to = { x = 10 }, ease = "linear" } })
++	Motion.step(t, 0.5)
++	local mid = s.x
++	Motion.play(t, { { dur = 1, to = { x = 0 }, ease = "linear" } })
++	Motion.step(t, 0.0001)
++	expect(math.abs(s.x - mid) < 0.01, "sin salto al reemplazar la secuencia")
++end
++
++-- onEnd que lanza otra secuencia no se salta tramos
++do
++	local s = Motion.newState({ x = 0 })
++	local t = Motion.newTrack(s)
++	Motion.play(t, { { dur = 0.1, to = { x = 1 }, onEnd = function()
++		Motion.play(t, { { dur = 0.1, to = { x = 5 }, ease = "linear" } })
++	end } })
++	for _ = 1, 10 do Motion.step(t, 0.05) end
++	expect(near(s.x, 5), "la secuencia lanzada desde onEnd debe ejecutarse entera")
++end
++
++-- Layout.freeSlots: primeras casillas libres (false o nil)
++do
++	local free = Layout.freeSlots({ { uid = 1 }, false, { uid = 2 }, false, false }, 2)
++	expect(#free == 2 and free[1] == 2 and free[2] == 4, "freeSlots devuelve las primeras libres en orden")
++	expect(#Layout.freeSlots({ {}, {}, {}, {}, {} }, 3) == 0, "sin casillas libres")
++	expect(#Layout.freeSlots({ false, false, false, false, false }, 9) == 5, "no devuelve más de las que hay")
++end
++
++print("Motion.spec OK")
+-- 
+2.43.0
+
