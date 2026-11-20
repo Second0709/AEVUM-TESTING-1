@@ -37,7 +37,8 @@ Config.Match = {
 -- Opciones del cliente (tablero 3D). Board3D = false vuelve al tablero 2D clásico.
 Config.Client = {
 	Board3D = true,
-	Quality = "High", -- "High" | "Low" (Low: sin brillos animados, sin luces ni sombras)
+	Quality = "High", -- "High" | "Low" (Low: sin brillos animados, sin luces, sin sombras, sin luciérnagas ni río animado)
+	Skin = "Ruinas", -- "Ruinas" | "Circuito" | "Templo" (paletas en UI3D/Skins). Se empieza con Ruinas
 }
 
 Config.Sounds = {

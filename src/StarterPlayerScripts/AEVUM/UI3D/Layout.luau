@@ -12,16 +12,18 @@ local Layout = {}
 Layout.CARD = { w = 4, d = 5.6, h = 0.12 }
 
 Layout.SLOT_PITCH = 5 -- distancia entre centros de casilla en X
-Layout.ROW_COMBAT = 5.6 -- |z| de la fila de Combate
-Layout.ROW_BENCH = 12.8 -- |z| de la fila de Banca
-Layout.SIDE_X = 17.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
+Layout.ROW_COMBAT = 5.2 -- |z| de la fila de Combate
+Layout.ROW_BENCH = 12.4 -- |z| de la fila de Banca (7.2 entre filas: el cristal cabe en medio)
+Layout.SIDE_X = 16.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
+Layout.PEDESTAL_R = 2.2 -- radio de pedestales y pozos de las columnas laterales
+Layout.DISC_R = 2.0 -- radio del disco de turno (la franja libre entre filas de Combate mide 4.8)
+Layout.BARRIER_GAP = 1.3 -- de la Banca a la barrera (desde el borde de la carta)
 
 -- Alturas (Y = 0 es la superficie de la mesa)
 Layout.CARD_Y = 0.6 -- centro de una carta que flota sobre su casilla
 Layout.SEL_LIFT = 0.9 -- cuánto se eleva una carta seleccionada
 Layout.HOVER_Y = 2.8 -- altura a la que se alza una carta antes de volar a otra zona
 Layout.PILE_Y = 0.95 -- altura de entrada/salida en mazo y cementerio
-Layout.ORB_Y = 4 -- altura del orbe central
 
 local function sign(side)
 	return side == "Self" and 1 or -1
@@ -78,17 +80,43 @@ function Layout.freeSlots(list, n, count)
 	return out
 end
 
--- Orbe central. attacker: "Self" | "Enemy" | nil (neutro). Se desplaza hacia quien ataca.
-function Layout.orb(attacker)
-	local z = 0
-	if attacker then z = sign(attacker) * 1.2 end
-	return { x = 0, z = z }
+-- Disco de turno: fijo en el centro (la mitad de quien ataca brilla; no se desplaza)
+function Layout.disc()
+	return { x = 0, z = 0 }
+end
+
+-- Barrera: panel bajo detrás de la Banca de cada bando (alto ~1 stud). Centro en Z y semiancho en X.
+function Layout.barrierZ(side)
+	return sign(side) * (Layout.ROW_BENCH + Layout.CARD.d / 2 + Layout.BARRIER_GAP)
+end
+Layout.BARRIER_HALF_W = 2.5 * Layout.SLOT_PITCH -- cubre las 5 casillas
+
+-- Camino de los pulsos de daño: del punto de impacto en la barrera, por el surco de su base hasta la
+-- columna lateral y por ella hasta el cristal. Devuelve puntos { x, z } (Parche 3 anima a lo largo).
+function Layout.pulsePath(side, impactX)
+	local bz = Layout.barrierZ(side) + sign(side) * 0.55 -- el surco corre justo detrás del panel
+	local v = Layout.vital(side)
+	local x = math.clamp(impactX or 0, -Layout.BARRIER_HALF_W, Layout.BARRIER_HALF_W)
+	return {
+		{ x = x, z = bz },
+		{ x = v.x, z = bz },
+		{ x = v.x, z = v.z },
+	}
+end
+
+-- Esquinas de la mesa (para las torres)
+function Layout.corners()
+	local half = Layout.halfExtents()
+	return {
+		{ x = -half.x, z = -half.z }, { x = half.x, z = -half.z },
+		{ x = -half.x, z = half.z }, { x = half.x, z = half.z },
+	}
 end
 
 -- Semi-extensiones de la mesa jugable (sin marco)
 function Layout.halfExtents()
-	local halfX = Layout.SIDE_X + 3
-	local halfZ = Layout.ROW_BENCH + Layout.CARD.d / 2 + 2.5
+	local halfX = Layout.SIDE_X + 2.6
+	local halfZ = Layout.ROW_BENCH + Layout.CARD.d / 2 + 2.4
 	return { x = halfX, z = halfZ }
 end
 
@@ -122,6 +150,14 @@ function Layout.cameraFit(aspect, vfovDeg, pitchDeg, region, margin)
 		distance = math.max(dW, dH) * margin,
 		shift = math.atan(ndcY * tanV),
 	}
+end
+
+-- Ancho aparente (píxeles) de una carta en el centro de la mesa con el encuadre de cameraFit.
+-- viewportH = alto de pantalla en píxeles. Sirve para vigilar la legibilidad (objetivo: >= 80 px a 1080p).
+function Layout.cardScreenWidth(aspect, vfovDeg, pitchDeg, viewportH, region, margin)
+	local fit = Layout.cameraFit(aspect, vfovDeg, pitchDeg, region, margin)
+	local tanV = math.tan(math.rad(vfovDeg) / 2)
+	return Layout.CARD.w * viewportH / (2 * tanV * fit.distance)
 end
 
 return Layout

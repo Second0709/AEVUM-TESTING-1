@@ -10,7 +10,7 @@
 -- Tu mano sigue siendo 2D: las cartas 3D salen y llegan a la posición del botón de la mano.
 --
 -- ctx:
---   origin, quality, cards (CardDatabase.Data), theme
+--   origin, quality, skin (nombre de Skins; Config.Client.Skin), cards (CardDatabase.Data), theme
 --   handRect(uid) -> centro, tamaño del botón de esa carta en la mano (en píxeles) o nil
 --   isTarget(side, zone, slot, uid) · activatableAt(slot)
 --   onMyBench / onMyCombat / onOppBench / onOppCombat (slot, inst) · onSlot(side, zone, index)
@@ -27,6 +27,7 @@ local CardView = require(script.Parent.CardView)
 local Input3D = require(script.Parent.Input3D)
 local Layout = require(script.Parent.Layout)
 local Motion = require(script.Parent.Motion)
+local Skins = require(script.Parent.Skins)
 
 local Board3D = {}
 
@@ -41,6 +42,7 @@ function Board3D.create(ctx)
 	ctx = ctx or {}
 	local origin = ctx.origin or DEFAULT_ORIGIN
 	local quality = ctx.quality or "High"
+	local skinName = ctx.skin or Skins.Default
 	local cardsDb = ctx.cards
 	local theme = ctx.theme
 
@@ -55,6 +57,8 @@ function Board3D.create(ctx)
 	local prev = nil -- snapshot del view anterior
 	local activeMarkers = {} -- clave de casilla -> true
 	local labels = {}
+	local discAttacker = nil -- "Self" | "Enemy" | nil: quién tiene el derecho de ataque (view.attackerIdx)
+	local discDirty = true
 
 	-- ══════════════ Posiciones y destinos ══════════════
 
@@ -461,33 +465,56 @@ function Board3D.create(ctx)
 
 	-- ══════════════ Resaltes, marcadores y contadores ══════════════
 
+	-- Medallón de vida pequeño sobre el plinto del cristal y contadores discretos sobre mazo y cementerio.
+	-- Nada de letreros gigantes ni AlwaysOnTop: no tapan la mesa (error ya cometido, plan §9).
 	local function ensureLabels()
 		if labels.ready or not scene then return end
 		labels.ready = true
-		local function make(adornee, offsetY, size, color)
+		local function billboard(adornee, offset, w, h)
 			local bb = Instance.new("BillboardGui")
-			bb.Size = UDim2.fromOffset(size.X, size.Y)
-			bb.StudsOffset = Vector3.new(0, offsetY, 0)
-			bb.AlwaysOnTop = true
+			bb.Size = UDim2.fromOffset(w, h)
+			bb.StudsOffset = offset
+			bb.AlwaysOnTop = false
 			bb.LightInfluence = 0
 			bb.Adornee = adornee
 			bb.Parent = adornee
+			return bb
+		end
+		local function text(parent, props)
 			local l = Instance.new("TextLabel")
-			l.Size = UDim2.fromScale(1, 1)
 			l.BackgroundTransparency = 1
 			l.Font = Enum.Font.GothamBlack
 			l.TextScaled = true
-			l.TextColor3 = color
 			l.TextStrokeTransparency = 0.35
 			l.Text = ""
-			l.Parent = bb
+			for k, v in pairs(props) do l[k] = v end
+			l.Parent = parent
 			return l
 		end
+		local frameColor = Skins.rgb(scene.skin.frame)
 		for _, side in ipairs(SIDES) do
-			local color = BoardBuilder.Palette[side]
-			labels["vital" .. side] = make(scene.refs.vitals[side], 2, Vector2.new(120, 56), color)
-			labels["deck" .. side] = make(scene.refs.decks[side], 1.6, Vector2.new(110, 34), color)
-			labels["grave" .. side] = make(scene.refs.graveyards[side], 1.6, Vector2.new(110, 34), color)
+			local color = scene.palette[side]
+			-- Medallón: círculo oscuro con el número de vida (+ escudo en pequeño)
+			local bb = billboard(scene.refs.plinth[side], Vector3.new(0, 1.1, 2.2), 46, 46)
+			local medal = Instance.new("Frame")
+			medal.Size = UDim2.fromScale(1, 1)
+			medal.BackgroundColor3 = Color3.fromRGB(20, 18, 34)
+			medal.BorderSizePixel = 0
+			medal.Parent = bb
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(1, 0)
+			corner.Parent = medal
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = frameColor
+			stroke.Thickness = 3
+			stroke.Parent = medal
+			labels["hp" .. side] = text(medal, { Size = UDim2.fromScale(1, 1), TextColor3 = Color3.fromRGB(255, 255, 255) })
+			labels["shield" .. side] = text(bb, { Position = UDim2.new(1, -2, 0, -6), Size = UDim2.fromOffset(26, 16),
+				TextColor3 = Color3.fromRGB(150, 210, 255), Visible = false })
+			-- Contadores sobre las pilas
+			labels["deck" .. side] = text(billboard(scene.refs.decks[side], Vector3.new(0, 1.5, 0), 40, 18), { Size = UDim2.fromScale(1, 1), TextColor3 = color })
+			labels["grave" .. side] = text(billboard(scene.refs.graveyards[side], Vector3.new(0, 1.3, 0), 40, 18), { Size = UDim2.fromScale(1, 1),
+				TextColor3 = Color3.fromRGB(235, 235, 245) })
 		end
 	end
 
@@ -589,16 +616,41 @@ function Board3D.create(ctx)
 			end
 		end
 
-		-- Cristales de vida (objetivo "Avatar") y contadores
+		-- Cristales de vida (objetivo "Avatar"), medallón, contadores y pila del mazo
 		ensureLabels()
 		for _, side in ipairs(SIDES) do
 			local pl = side == "Self" and view.me or view.opp
-			local crystal = scene.refs.vitals[side]
-			crystal.Color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or BoardBuilder.Palette[side]
-			local shield = (pl.shield or 0) > 0 and (" (+" .. pl.shield .. ")") or ""
-			labels["vital" .. side].Text = tostring(pl.hp) .. shield
-			labels["deck" .. side].Text = "MAZO " .. tostring(pl.deck)
-			labels["grave" .. side].Text = "CEM. " .. tostring(#pl.graveyard)
+			local color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or scene.palette[side]
+			for _, p in ipairs(scene.refs.vitalGem[side]) do p.Color = color end
+			labels["hp" .. side].Text = tostring(pl.hp)
+			local shield = pl.shield or 0
+			labels["shield" .. side].Visible = shield > 0
+			labels["shield" .. side].Text = "+" .. shield
+			labels["deck" .. side].Text = tostring(pl.deck)
+			labels["grave" .. side].Text = tostring(#pl.graveyard)
+			scene.refs.setDeck(side, pl.deck)
+		end
+
+		-- Disco de turno: brilla la mitad de quien tiene el derecho de ataque (view.attackerIdx)
+		local attacker = nil
+		if view.attackerIdx and not view.over then attacker = (view.attackerIdx == view.you) and "Self" or "Enemy" end
+		discAttacker = attacker
+		discDirty = true
+	end
+
+	-- Brillo de las mitades del disco: la de quien ataca brilla y pulsa; la otra baja a ~45 %.
+	-- Sin atacante (partida terminada): las dos a un brillo neutro.
+	local function updateDisc(t)
+		if not scene then return end
+		local pulsing = discAttacker ~= nil and quality ~= "Low"
+		if not (discDirty or pulsing) then return end
+		discDirty = false
+		for _, side in ipairs(SIDES) do
+			local k
+			if discAttacker == nil then k = 0.8
+			elseif discAttacker == side then k = pulsing and (1.05 + 0.2 * math.sin(t * 4.4)) or 1.1
+			else k = 0.45 end
+			scene.refs.disc[side].BackgroundColor3 = Skins.shade(Skins.side(scene.skin, side), k)
 		end
 	end
 
@@ -645,6 +697,18 @@ function Board3D.create(ctx)
 			Motion.step(card.track, dt)
 			if flyers[card] then CardView.apply(card, origin, 0) end -- onEnd puede haberla liberado ya
 		end
+		updateDisc(t)
+		if quality ~= "Low" and scene then
+			local river = scene.anim.river
+			if river then
+				for i, f in ipairs(river.frames) do f.Position = UDim2.fromScale(((i - 1) / river.n + t * 0.1) % 1, 0) end
+			end
+			for _, f in ipairs(scene.anim.fireflies) do
+				local ph = (t * 0.18 + f.phase) % 1
+				f.part.Position = origin + Vector3.new(f.x + math.sin(t + f.phase * 6) * 0.6, 0.8 + ph * 3.2, f.z)
+				f.part.Transparency = 1 - math.sin(math.pi * ph) * 0.75
+			end
+		end
 		if next(activeMarkers) then
 			local a = 0.5 + 0.15 * math.sin(t * 4)
 			for key in pairs(activeMarkers) do scene.refs.markers[key].Transparency = a end
@@ -655,14 +719,15 @@ function Board3D.create(ctx)
 		if visible then return end
 		visible = true
 		if not scene then
-			scene = BoardBuilder.build(origin, quality)
+			CardView.setSkin(Skins.get(skinName)) -- colores de bando del reverso (antes de crear cartas)
+			scene = BoardBuilder.build(origin, quality, skinName)
 			cardsFolder = Instance.new("Folder")
 			cardsFolder.Name = "Cartas"
 			cardsFolder.Parent = scene.folder
 			pool = CardView.newPool(cardsFolder, cardsDb, quality)
 		end
 		scene.folder.Parent = workspace
-		restoreLighting = BoardBuilder.applyLighting(quality)
+		restoreLighting = BoardBuilder.applyLighting(quality, skinName)
 		stopCamera = CameraRig.start(origin)
 		stepConn = RunService.RenderStepped:Connect(step)
 		disconnectInput = Input3D.connect({
@@ -673,7 +738,7 @@ function Board3D.create(ctx)
 		if quality ~= "Low" then
 			local info = TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
 			for _, p in ipairs(scene.glow) do
-				local tween = TweenService:Create(p, info, { Transparency = 0.45 })
+				local tween = TweenService:Create(p, info, { Transparency = math.min(0.9, scene.glowBase[p] + 0.35) })
 				tween:Play()
 				pulses[#pulses + 1] = tween
 			end
@@ -689,7 +754,7 @@ function Board3D.create(ctx)
 		pulses = {}
 		resetCards()
 		if scene then
-			for _, p in ipairs(scene.glow) do p.Transparency = p.Name:find("Cristal") and 0.1 or 0 end
+			for _, p in ipairs(scene.glow) do p.Transparency = scene.glowBase[p] end
 			scene.folder.Parent = nil
 		end
 		if stopCamera then stopCamera() stopCamera = nil end
@@ -713,6 +778,7 @@ function Board3D.create(ctx)
 	local api = {
 		isHandHidden = function(uid) return hidden[uid] == true end,
 		reset = resetCards,
+		discAttacker = function() return discAttacker end,
 		debug = function()
 			local n, f, h = 0, 0, 0
 			for _ in pairs(live) do n += 1 end

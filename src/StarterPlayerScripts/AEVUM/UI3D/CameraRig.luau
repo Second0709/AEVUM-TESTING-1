@@ -8,7 +8,7 @@ local Layout = require(script.Parent.Layout)
 local CameraRig = {}
 
 CameraRig.FOV = 45 -- FOV vertical (grados)
-CameraRig.PITCH = 58 -- inclinación bajo el horizonte (grados)
+CameraRig.PITCH = 46 -- inclinación bajo el horizonte (grados). Más baja que antes (58): las cartas se ven más grandes
 
 -- Toma el control de la cámara apuntando a `center` (Vector3).
 -- Devuelve una función `stop` que la devuelve a como estaba.

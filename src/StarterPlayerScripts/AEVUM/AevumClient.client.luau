@@ -381,7 +381,7 @@ end
 local renderBoard3D, show3D, hide3D = nil, nil, nil
 if use3D then
 	renderBoard3D, show3D, hide3D, board3dApi = Board3DUI.create({
-		quality = ClientCfg.Quality, cards = Cards, theme = C, handRect = handRect,
+		quality = ClientCfg.Quality, skin = ClientCfg.Skin, cards = Cards, theme = C, handRect = handRect,
 		isTarget = isTarget, activatableAt = activatableAt,
 		onMyBench = onMyBench, onMyCombat = onMyCombat, onOppBench = onOppBench, onOppCombat = onOppCombat,
 		onSlot = onSlot3D, onAvatar = onAvatar3D, onMiss = onMiss3D,

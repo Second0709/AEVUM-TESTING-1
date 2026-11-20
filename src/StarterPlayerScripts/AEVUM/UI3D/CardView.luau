@@ -41,6 +41,18 @@ local COLORS = {
 	Enemy = Color3.fromRGB(255, 90, 170),
 }
 
+-- Giro que deja la normal de Front hacia +Y y el "arriba" del lienzo hacia -Z (ver cabecera).
+-- Lo usa también BoardBuilder para las baldosas y el disco: una sola constante (FACE_YAW) corrige todo.
+function CardView.faceRotation()
+	return CFrame.Angles(0, CardView.FACE_YAW, 0) * CFrame.Angles(math.pi / 2, 0, 0)
+end
+
+-- Colores de bando de la skin: rojo/coral = rival, azul = jugador (reverso de las cartas)
+function CardView.setSkin(skin)
+	COLORS.Self = Color3.fromRGB(skin.ally[1], skin.ally[2], skin.ally[3])
+	COLORS.Enemy = Color3.fromRGB(skin.rival[1], skin.rival[2], skin.rival[3])
+end
+
 local function mk(class, props, parent)
 	local o = Instance.new(class)
 	for k, v in pairs(props) do o[k] = v end
@@ -72,8 +84,7 @@ local function buildModel(quality)
 	local model = Instance.new("Model")
 	model.Name = "Carta"
 
-	-- Giro que deja la normal de Front hacia +Y y el "arriba" del lienzo hacia -Z (ver cabecera)
-	local face = CFrame.Angles(0, CardView.FACE_YAW, 0) * CFrame.Angles(math.pi / 2, 0, 0)
+	local face = CardView.faceRotation()
 
 	local body = cardPart("Cuerpo", Vector3.new(W, 0.22, D), CFrame.new(0, 0, 0), GOLD, Enum.Material.Metal, model)
 	-- Pieza fina (ancho, alto, grosor): al girarla, su "alto" queda a lo largo de Z de la carta

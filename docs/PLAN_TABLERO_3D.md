@@ -17,16 +17,17 @@ Sirve para retomar el trabajo en un chat nuevo sin perder contexto. **Sustituye 
 
 ## 1. Estado real de la rama `3D-implement`
 
-Commits sobre `main`: Fase 1 (templo estático, cámara adaptable) · cartas 3D + animaciones + entrada táctil · archivos de prueba.
+Commits sobre `main`: Fase 1 (templo estático, cámara adaptable) · cartas 3D + animaciones + entrada táctil · archivos de prueba · **Parche 1 (cartas mínimas + arena limpia por skin)**.
 Código en `src/StarterPlayerScripts/AEVUM/UI3D/`:
 
 | Módulo | Qué hace hoy |
 |---|---|
-| `Layout.luau` | Posiciones puras (casillas, cristales, mazos, cementerios, orbe) y `cameraFit`. Probado en `tests/Layout.spec.luau`. |
+| `Layout.luau` | Posiciones puras (casillas, cristales, mazos, cementerios, disco, barreras, esquinas), `pulsePath` (camino barrera → cristal), `cameraFit` y `cardScreenWidth` (legibilidad). Probado en `tests/Layout.spec.luau`. |
+| `Skins.luau` | Paletas de arena como datos puros (Ruinas, Circuito, Templo). `Config.Client.Skin` elige. Probado en `tests/Skins.spec.luau`. |
 | `Motion.luau` | Pistas de animación **puras** (estado `{x,y,z,flip,tilt,scale}`, tramos con `to` fijo o "vivo", arco, easing, `delay`, `onEnd`). Probado en `tests/Motion.spec.luau`. |
-| `BoardBuilder.luau` | Construye el templo (233 partes, 7 luces, 17 neones que pulsan), zonas táctiles invisibles por casilla, marcadores de casilla y la iluminación local. |
-| `CameraRig.luau` | Cámara `Scriptable` (FOV 45°, inclinación 58°) que ajusta la distancia a la proporción de pantalla. |
-| `CardView.luau` | Modelo 3D de carta con pool (40 instancias por carta): cuerpo de oro, `SurfaceGui` frontal y reverso, anillo `SelectionBox`. |
+| `BoardBuilder.luau` | Construye la arena según la skin: 114 partes en calidad alta (antes 233), 6 luces, baldosas de 1 pieza con grabado en `SurfaceGui`, río de luz, disco de turno, barreras con surco, torres, pedestales, pozos, luciérnagas. 22 zonas táctiles (20 casillas + 2 cristales; la zona de casilla es también el marcador). `applyLighting` usa la luz de la skin. |
+| `CameraRig.luau` | Cámara `Scriptable` (FOV 45°, inclinación 46°) que ajusta la distancia a la proporción de pantalla. |
+| `CardView.luau` | Modelo 3D de carta con pool (19 instancias por carta): cuerpo de oro, cara mínima (arte + ATK + VIDA + etiqueta) y reverso en piezas finas con `SurfaceGui` en Front/Back, anillo `SelectionBox`. `faceRotation()` y `FACE_YAW` fijan la orientación de TODAS las caras (cartas, baldosas, disco). |
 | `Input3D.luau` | Toque/clic con raycast (tolerancia de arrastre 14 px; la GUI 2D tiene prioridad). |
 | `Board3D.luau` | Reconciliador **por uid** que compara el `view` nuevo con el anterior y lanza las animaciones. Devuelve `render, show, hide, api`. |
 
@@ -37,7 +38,7 @@ Mano → Banca · Banca → Combate (con volteo si se revela) · volteo en sitio
 **Nota:** ninguna regla actual devuelve una carta del tablero a la mano; esa animación existe pero hoy no la dispara nada.
 
 ### Lo que todavía NO existe
-Disco de turno · barreras · divisor central · entorno (torres, pozos, pedestales) · ataque directo · bloqueo (choque) · vida diferida hasta el impacto · efecto de muerte · hechizo activado · pila y carrusel del cementerio · detalle grande de carta al tocar · skins de arena.
+Ataque directo · bloqueo (choque) · vida diferida hasta el impacto · efecto de muerte · hechizo activado · pila y carrusel del cementerio (hoy el pozo solo muestra el contador) · grietas de la barrera y pulsos (el surco y `Layout.pulsePath` ya existen). Hecho en el Parche 1: disco de turno, barreras, divisor, entorno, detalle grande al tocar (`UI/CardDetail`, panel derecho), skins.
 
 ---
 
@@ -146,6 +147,25 @@ A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar 
    e) Barreras estáticas + surco barrera → cristal.
    f) Reencuadre de cámara (pitch ~46°, espacios más justos).
    Dos commits: (b) y (c–f), porque comparten el cálculo de cámara.
+   **ESTADO: implementado y probado sin Studio (3 specs + humo en verde). Pendiente de verificar en Studio (lista abajo).**
+
+   *Qué quedó distinto a lo previsto (para no sorprender):*
+   - Torres de **12 lados** (3 bloques girados 0°/30°/60°), no hexagonales: un hexágono exacto exige intersección y las partes solo permiten unión.
+   - Barrera: franjas verticales del color del bando; **sin glifos** (llegarán con las grietas del Parche 3).
+   - Detalle de carta: panel fijo en la columna derecha (no flotante). Cartas boca abajo del rival no abren detalle; la mano 2D tampoco (ya se lee).
+   - El disco ya **no se desplaza** hacia quien ataca (antes el orbe sí): solo brilla/pulsa la mitad del atacante (~45 % la otra).
+   - Zona táctil y marcador de casilla son la **misma pieza** (transparente, `CanQuery`); el resto de la arena es `CanQuery = false`.
+   - Constantes nuevas: `ROW_COMBAT 5.2`, `ROW_BENCH 12.4`, `SIDE_X 16.5`, `DISC_R 2.0`, pitch 46°. Resultado medido: carta ≈ **84 px** de ancho a 1080p (antes ≈ 72; objetivo 80–90).
+   - Solo Ruinas está pensada como acabado final; Circuito y Templo existen como paletas (probadas estructuralmente) pero sin ajuste visual.
+
+   *Verificar en Studio (lo único que no se puede probar fuera):*
+   1. Texto de cartas derecho y sin espejo (también en cartas reveladas del rival). Si sale al revés: `CardView.FACE_YAW = 0`; corrige cartas, baldosas y disco a la vez.
+   2. Disco de turno visible: su `SurfaceGui` está en una pieza con `Transparency = 1` y usa `CanvasGroup` + `UICorner` para el recorte circular. Si no se ve, poner la pieza con transparencia 0 y color de la mesa.
+   3. Baldosas grabadas (octágono/círculo) legibles y orientadas; barrera visible desde la cámara (cara Back).
+   4. Silueta del cristal (fuste de 8 caras + 2 puntas de cubo): ¿se lee como gema?
+   5. Medallón de vida pequeño sobre el plinto, sin tapar cartas; contadores de mazo/pozo discretos.
+   6. Tocar casillas vacías, cartas y cristales (zonas más finas que antes) en PC y en móvil.
+   7. Rendimiento en calidad alta y baja (`Config.Client.Quality`).
 2. **Parche 2 — Pila y carrusel del cementerio** (solo cliente).
 3. **Parche 3 — Ataque directo y combate** (evento `DirectHit`, vida diferida, pulsos, grietas, bloqueo).
 4. **Parche 4 — Revivir desde el cementerio** (regla de servidor + animaciones).
@@ -163,7 +183,9 @@ A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar 
 - Hacer `render` que borra y recrea todo: el 3D reconcilia por uid o no habrá animaciones.
 - Mutar una tabla mientras se recorre con `pairs` dentro de callbacks de animación: usar `task.defer` para `requestRender`.
 - `ctx.fn and ctx.fn(x)` trunca los retornos múltiples: llamar `a, b = ctx.fn(x)` explícitamente.
-- Los resultados de `luau` CLI: las globales son de solo lectura (ver `tests/smoke`).
+- Los resultados de `luau` CLI: las globales son de solo lectura (ver `tests/smoke`). Por eso la lógica pura (`Skins.shadeRgb`) se separa de la que crea `Color3`.
+- Orientación: **no usar la cara Top** para un `SurfaceGui` con texto. Usar Front/Back de una pieza fina girada con `CardView.faceRotation()` (matemática verificada; la convención de Roblox, solo en Studio).
+- Un patrón de prueba que asume la sangría equivocada falla en silencio al parchear: comprobar siempre que el reemplazo se aplicó.
 
 ---
 
@@ -176,8 +198,8 @@ A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar 
 - **Claude no puede ejecutar Roblox Studio ni subir al repo.** Entrega parches (`git format-patch`) que se aplican con `git am` en la rama, y comprueba que aplican limpio sobre ella. Rojo (`rojo serve`) sincroniza con Studio. Se prueba en Studio contra el bot (`ServerConfig.Bot.Enabled = true`).
 - Ante un fallo, enviar el mensaje completo de Output con la línea y, si es visual, una captura.
 - **Pruebas sin Studio** (ejecutar antes de entregar cualquier parche):
-  - `luau tests/Match.spec.luau` · `luau tests/Layout.spec.luau` · `luau tests/Motion.spec.luau`
-  - `python3 tests/smoke/run.py [ruta a luau]`: simula la API mínima de Roblox y ejecuta los escenarios de `Board3D` (jugar, robar, avanzar con volteo, cementerio, devolver, evolución, partida nueva). Si UI3D usa API nueva, ampliar `tests/smoke/_stubs.luau`.
+  - `luau tests/Match.spec.luau` · `luau tests/Layout.spec.luau` · `luau tests/Motion.spec.luau` · `luau tests/Skins.spec.luau`
+  - `python3 tests/smoke/run.py [ruta a luau]`: simula la API mínima de Roblox y ejecuta los escenarios de `Board3D` (jugar, robar, avanzar con volteo, cementerio, devolver, evolución, partida nueva) y comprueba el presupuesto de la arena (partes, luces, redondos con `Shape = Cylinder`, zonas táctiles), el peso por carta, el disco de turno y `CardDetail`. Si UI3D usa API nueva, ampliar `tests/smoke/_stubs.luau`.
   - Obtener `luau`: `curl -sL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip && unzip luau.zip`.
 - Mantener los nombres de acciones y la validación de `Validator.luau`.
 

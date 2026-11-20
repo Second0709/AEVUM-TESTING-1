@@ -56,6 +56,55 @@ do
 	expect(CardDetail.draw(ctx, parent, { view = view }, 50) == nil, "detalle: sin carta elegida no dibuja nada")
 end
 
+-- 0c) arena: presupuesto de partes, redondos con Shape = Cylinder, zonas táctiles justas, calidad baja más ligera
+do
+	local BoardBuilder = require("./BoardBuilder")
+	local function census(quality)
+		local sc = BoardBuilder.build(S.V3(0, 0, 0), quality, "Ruinas")
+		local c = { parts = 0, lights = 0, query = {}, sc = sc }
+		for _, d in ipairs(sc.folder:GetDescendants()) do
+			if d.ClassName == "Part" then
+				c.parts += 1
+				if d.CanQuery then c.query[#c.query + 1] = d end
+			elseif d.ClassName == "PointLight" then
+				c.lights += 1
+			end
+		end
+		return c
+	end
+	local hi, lo = census("High"), census("Low")
+	print("partes de la arena:", hi.parts, "(alta) /", lo.parts, "(baja) · luces:", hi.lights, "/", lo.lights)
+	expect(hi.parts <= 130, "la arena debe tener <= 130 partes (hoy " .. hi.parts .. ")")
+	expect(lo.parts < hi.parts and lo.lights == 0 and #lo.sc.anim.fireflies == 0 and lo.sc.anim.river == nil and #lo.sc.glow == 0,
+		"calidad baja: sin luces, luciérnagas, río animado ni brillos")
+	expect(hi.lights <= 6, "como mucho una luz por torre y por cristal")
+	expect(#hi.sc.refs.discs == 19, "los redondos se crean con disc()")
+	for _, p in ipairs(hi.sc.refs.discs) do
+		expect(p.Shape == S.Enum.PartType.Cylinder, "toda pieza redonda debe tener Shape = Cylinder: " .. p.Name)
+	end
+	-- Zonas táctiles: 20 casillas + 2 cristales, finas y sin solaparse con las vecinas
+	expect(#hi.query == 22, "solo 22 piezas consultables por raycast (20 casillas + 2 cristales), hay " .. #hi.query)
+	for _, p in ipairs(hi.query) do
+		if p:GetAttribute("Kind") == "slot" then
+			expect(p.Size.X < 5 and p.Size.Y <= 0.2, "la zona de casilla es fina y no pisa a la vecina: " .. p.Name)
+		else
+			expect(p:GetAttribute("Kind") == "avatar" and p.Size.Y <= 4, "la zona del cristal es ajustada")
+		end
+	end
+	for _, d in ipairs(hi.sc.folder:GetDescendants()) do
+		local n = d.Name or ""
+		expect(not (n:find("Canal") or n:find("Orbe") or n:find("Nodo")), "sin restos de neón del diseño anterior: " .. n)
+	end
+	-- Mazo: la pila crece con las cartas que quedan
+	hi.sc.refs.setDeck("Self", 30)
+	expect(hi.sc.refs.decks.Self.Size.Y > 1, "la pila del mazo crece con las cartas")
+	expect(hi.sc.refs.markers["Self:Bench:3"] ~= nil and hi.sc.refs.hit["Enemy:Combat:1"] ~= nil, "marcadores y zonas por casilla")
+	-- Skins: las tres construyen
+	for _, name in ipairs({ "Ruinas", "Circuito", "Templo" }) do
+		expect(BoardBuilder.build(S.V3(0, 0, 0), "High", name).refs.disc ~= nil, "la skin " .. name .. " construye la arena")
+	end
+end
+
 local handRects = {}
 local render, show, hide, api = Board3D.create({
 	cards = Cards, theme = { sel = 1, tgt = 2, atk = 3 },
@@ -94,6 +143,20 @@ local function hnd(uid, cardId) return { uid = uid, cardId = cardId, cost = Card
 -- 1) primer estado: todo aparece sin animar
 render(state(mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })))
 expect(api.debug().live == 0 and api.debug().flyers == 0, "primer estado vacío")
+
+-- 1b) disco de turno: brilla la mitad de quien ataca (view.attackerIdx); sin atacante al terminar
+expect(api.discAttacker() == "Self", "disco: ataco yo (attackerIdx == you)")
+do
+	local v = mkView({})
+	v.attackerIdx = 2
+	render(state(v))
+	expect(api.discAttacker() == "Enemy", "disco: ataca el rival")
+	v.over = true
+	render(state(v))
+	expect(api.discAttacker() == nil, "disco: partida terminada, sin atacante")
+	local v2 = mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })
+	render(state(v2)) -- vuelve al estado del escenario 1 (mismos uid): sin vuelos
+end
 
 -- 2) juego uid 1 a la Banca (casilla 2): sale de la mano
 local bench = emptyZone() bench[2] = mineInst(1, "APRENDIZ", { prepared = false })
