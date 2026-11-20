@@ -53,7 +53,7 @@ function BoardBuilder.build(origin, quality, skinName)
 	local anim = { river = nil, fireflies = {} }
 	local refs = {
 		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, graveyards = {},
-		barriers = {}, grooves = {}, plinth = {}, discs = {}, disc = nil,
+		barriers = {}, grooves = {}, discs = {}, disc = nil,
 	}
 	local palette = BoardBuilder.palette(skinName)
 
@@ -271,7 +271,7 @@ function BoardBuilder.build(origin, quality, skinName)
 
 		-- Cristal facetado: fuste de 8 caras (dos bloques a 0° y 45°) con una punta de cubo arriba y abajo
 		local v = Layout.vital(side)
-		local plinth = disc("CristalPlinto_" .. side, 3.6, 0.7, Vector3.new(v.x, 0.35, v.z), frameColor, METAL, { shadow = true })
+		disc("CristalPlinto_" .. side, 3.6, 0.7, Vector3.new(v.x, 0.35, v.z), frameColor, METAL, { shadow = true })
 		disc("CristalAro_" .. side, 3.9, 0.06, Vector3.new(v.x, 0.03, v.z), color, NEON, { glow = true, transparency = 0.3 })
 		local shaft = part("Cristal_" .. side, Vector3.new(1.2, 1.5, 1.2), Vector3.new(v.x, 2.5, v.z), color, NEON,
 			{ transparency = 0.12, glow = true, shadow = true })
@@ -284,7 +284,6 @@ function BoardBuilder.build(origin, quality, skinName)
 		light(shaft, color, 12, 1)
 		refs.vitals[side] = shaft
 		refs.vitalGem[side] = { shaft, shaft2, tipLo, tipHi }
-		refs.plinth[side] = plinth -- aquí se ancla el medallón de vida
 		-- Zona táctil del avatar: ajustada al cristal, para no tapar lo que hay detrás
 		local vhit = part("ZonaCristal_" .. side, Vector3.new(4.2, 4, 4.2), Vector3.new(v.x, 2.2, v.z), color, nil,
 			{ transparency = 1, query = true })

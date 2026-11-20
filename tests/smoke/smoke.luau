@@ -163,6 +163,11 @@ local function hnd(uid, cardId) return { uid = uid, cardId = cardId, cost = Card
 render(state(mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })))
 expect(api.debug().live == 0 and api.debug().flyers == 0, "primer estado vacío")
 
+-- 1a) sin números ni letreros sobre la mesa (medallón de vida, contadores de pila), ya renderizada la vista
+for _, d in ipairs(api.debug().folder:GetDescendants()) do
+	expect(d.ClassName ~= "BillboardGui" and d.ClassName ~= "TextLabel", "sin letreros sobre la mesa: " .. tostring(d.Name or d.ClassName))
+end
+
 -- 1b) disco de turno: brilla la mitad de quien ataca (view.attackerIdx); sin atacante al terminar
 expect(api.discAttacker() == "Self", "disco: ataco yo (attackerIdx == you)")
 do

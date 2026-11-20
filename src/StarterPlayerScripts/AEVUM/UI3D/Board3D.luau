@@ -56,7 +56,6 @@ function Board3D.create(ctx)
 	local hidden = {} -- uid de mano -> true mientras su carta 3D todavía está llegando
 	local prev = nil -- snapshot del view anterior
 	local activeMarkers = {} -- clave de casilla -> true
-	local labels = {}
 	local discAttacker = nil -- "Self" | "Enemy" | nil: quién tiene el derecho de ataque (view.attackerIdx)
 	local discDirty = true
 
@@ -463,60 +462,7 @@ function Board3D.create(ctx)
 		end
 	end
 
-	-- ══════════════ Resaltes, marcadores y contadores ══════════════
-
-	-- Medallón de vida pequeño sobre el plinto del cristal y contadores discretos sobre mazo y cementerio.
-	-- Nada de letreros gigantes ni AlwaysOnTop: no tapan la mesa (error ya cometido, plan §9).
-	local function ensureLabels()
-		if labels.ready or not scene then return end
-		labels.ready = true
-		local function billboard(adornee, offset, w, h)
-			local bb = Instance.new("BillboardGui")
-			bb.Size = UDim2.fromOffset(w, h)
-			bb.StudsOffset = offset
-			bb.AlwaysOnTop = false
-			bb.LightInfluence = 0
-			bb.Adornee = adornee
-			bb.Parent = adornee
-			return bb
-		end
-		local function text(parent, props)
-			local l = Instance.new("TextLabel")
-			l.BackgroundTransparency = 1
-			l.Font = Enum.Font.GothamBlack
-			l.TextScaled = true
-			l.TextStrokeTransparency = 0.35
-			l.Text = ""
-			for k, v in pairs(props) do l[k] = v end
-			l.Parent = parent
-			return l
-		end
-		local frameColor = Skins.rgb(scene.skin.frame)
-		for _, side in ipairs(SIDES) do
-			local color = scene.palette[side]
-			-- Medallón: círculo oscuro con el número de vida (+ escudo en pequeño)
-			local bb = billboard(scene.refs.plinth[side], Vector3.new(0, 1.1, 2.2), 46, 46)
-			local medal = Instance.new("Frame")
-			medal.Size = UDim2.fromScale(1, 1)
-			medal.BackgroundColor3 = Color3.fromRGB(20, 18, 34)
-			medal.BorderSizePixel = 0
-			medal.Parent = bb
-			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(1, 0)
-			corner.Parent = medal
-			local stroke = Instance.new("UIStroke")
-			stroke.Color = frameColor
-			stroke.Thickness = 3
-			stroke.Parent = medal
-			labels["hp" .. side] = text(medal, { Size = UDim2.fromScale(1, 1), TextColor3 = Color3.fromRGB(255, 255, 255) })
-			labels["shield" .. side] = text(bb, { Position = UDim2.new(1, -2, 0, -6), Size = UDim2.fromOffset(26, 16),
-				TextColor3 = Color3.fromRGB(150, 210, 255), Visible = false })
-			-- Contadores sobre las pilas
-			labels["deck" .. side] = text(billboard(scene.refs.decks[side], Vector3.new(0, 1.5, 0), 40, 18), { Size = UDim2.fromScale(1, 1), TextColor3 = color })
-			labels["grave" .. side] = text(billboard(scene.refs.graveyards[side], Vector3.new(0, 1.3, 0), 40, 18), { Size = UDim2.fromScale(1, 1),
-				TextColor3 = Color3.fromRGB(235, 235, 245) })
-		end
-	end
+	-- ══════════════ Resaltes y marcadores ══════════════
 
 	local function setMarker(key, color)
 		local m = scene.refs.markers[key]
@@ -616,18 +562,12 @@ function Board3D.create(ctx)
 			end
 		end
 
-		-- Cristales de vida (objetivo "Avatar"), medallón, contadores y pila del mazo
-		ensureLabels()
+		-- Cristales de vida (objetivo "Avatar") y pila del mazo. Sin números en la mesa: vida, escudo, energía,
+		-- mazo y cementerio se leen en la interfaz 2D (y, para las pilas, dentro de sus carruseles).
 		for _, side in ipairs(SIDES) do
 			local pl = side == "Self" and view.me or view.opp
 			local color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or scene.palette[side]
 			for _, p in ipairs(scene.refs.vitalGem[side]) do p.Color = color end
-			labels["hp" .. side].Text = tostring(pl.hp)
-			local shield = pl.shield or 0
-			labels["shield" .. side].Visible = shield > 0
-			labels["shield" .. side].Text = "+" .. shield
-			labels["deck" .. side].Text = tostring(pl.deck)
-			labels["grave" .. side].Text = tostring(#pl.graveyard)
 			scene.refs.setDeck(side, pl.deck)
 		end
 
@@ -784,7 +724,7 @@ function Board3D.create(ctx)
 			for _ in pairs(live) do n += 1 end
 			for _ in pairs(flyers) do f += 1 end
 			for _ in pairs(hidden) do h += 1 end
-			return { live = n, flyers = f, hidden = h }
+			return { live = n, flyers = f, hidden = h, folder = scene and scene.folder or nil }
 		end,
 	}
 	return render, show, hide, api
