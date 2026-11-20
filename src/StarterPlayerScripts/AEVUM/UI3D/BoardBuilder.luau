@@ -220,33 +220,49 @@ function BoardBuilder.build(origin, quality, skinName)
 	end
 
 	-- ── Disco de turno: círculo partido, mitad superior roja (rival) e inferior azul (tú) ──
+	-- El círculo es un Frame con UICorner (la misma técnica de los anillos de las baldosas) y las dos mitades son
+	-- un UIGradient de corte duro. CanvasGroup + UICorner no recortó en Studio (salían esquinas): no usarlo.
 	local dr = Layout.DISC_R
 	disc("DiscoBase", dr * 2 + 0.4, 0.16, Vector3.new(0, 0.12, 0), frameColor, METAL, { shadow = true })
 	local holder = part("DiscoCara", Vector3.new(dr * 2, dr * 2, 0.02), Vector3.new(0, 0.215, 0), Color3.fromRGB(255, 255, 255),
 		SMOOTH, { rot = face, transparency = 1 })
 	local dg = surface(holder, Enum.NormalId.Front, 400, 400, 0)
-	local group = Instance.new("CanvasGroup") -- recorta las mitades con el círculo
-	group.Size = UDim2.fromScale(1, 1)
-	group.BackgroundTransparency = 1
-	group.BorderSizePixel = 0
-	group.Parent = dg
-	local gc = Instance.new("UICorner")
-	gc.CornerRadius = UDim.new(1, 0)
-	gc.Parent = group
-	local topHalf = frame(group, { Name = "MitadRival", Size = UDim2.fromScale(1, 0.5), BackgroundColor3 = palette.Enemy })
-	local botHalf = frame(group, { Name = "MitadAliada", Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromScale(1, 0.5),
-		BackgroundColor3 = palette.Self })
-	frame(group, { Position = UDim2.new(0, 0, 0.5, -3), Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
-	local dot = frame(group, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+	local circle = frame(dg, { Name = "DiscoCirculo", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.94, 0.94), BackgroundColor3 = Color3.fromRGB(255, 255, 255) }) -- 0.94: deja sitio al borde
+	local cc = Instance.new("UICorner")
+	cc.CornerRadius = UDim.new(1, 0)
+	cc.Parent = circle
+	local grad = Instance.new("UIGradient")
+	grad.Rotation = 90 -- de arriba (rival) a abajo (tú)
+	grad.Parent = circle
+	local cs = Instance.new("UIStroke")
+	cs.Color = Color3.fromRGB(255, 255, 255)
+	cs.Thickness = 8
+	cs.Parent = circle
+	frame(circle, { Name = "DiscoLinea", Position = UDim2.new(0, 0, 0.5, -3), Size = UDim2.new(1, 0, 0, 6),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
+	local dot = frame(circle, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
 	local dc = Instance.new("UICorner")
 	dc.CornerRadius = UDim.new(1, 0)
 	dc.Parent = dot
-	local gs = Instance.new("UIStroke")
-	gs.Color = Color3.fromRGB(255, 255, 255)
-	gs.Thickness = 8
-	gs.Parent = group
-	refs.disc = { Enemy = topHalf, Self = botHalf }
+	local halves = { Enemy = palette.Enemy, Self = palette.Self }
+	local function paintDisc()
+		local e, m = halves.Enemy, halves.Self
+		-- corte duro en 0.5 (los tiempos no se repiten por si Roblox los exige estrictos)
+		grad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, e), ColorSequenceKeypoint.new(0.5, e),
+			ColorSequenceKeypoint.new(0.501, m), ColorSequenceKeypoint.new(1, m),
+		})
+	end
+	paintDisc()
+	refs.disc = {
+		gradient = grad,
+		set = function(side, color) -- color de la mitad "Enemy" (arriba) o "Self" (abajo)
+			halves[side] = color
+			paintDisc()
+		end,
+	}
 
 	-- ── Columna lateral: cristal de vida, mazo y cementerio de cada bando ──
 	for _, side in ipairs(SIDES) do

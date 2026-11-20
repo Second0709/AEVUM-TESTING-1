@@ -24,6 +24,8 @@ local Color3 = { fromRGB = function(r, g, b) return { r, g, b } end, new = funct
 local UDim2 = { new = function() return {} end, fromOffset = function() return {} end, fromScale = function() return {} end }
 local UDim = { new = function() return {} end }
 local TweenInfo = { new = function() return {} end }
+local ColorSequenceKeypoint = { new = function(t, c) return { Time = t, Value = c } end }
+local ColorSequence = { new = function(k) return { Keypoints = k } end }
 local Enum = setmetatable({}, { __index = function(_, a) return setmetatable({}, { __index = function(_, b) return a .. "." .. b end }) end })
 local RaycastParams = { new = function() return {} end }
 
@@ -109,4 +111,4 @@ local script = { Parent = setmetatable({}, { __index = function(_, name)
 end }) }
 
 
-return { Vector3=Vector3, Vector2=Vector2, CFrame=CFrame, Color3=Color3, UDim2=UDim2, UDim=UDim, TweenInfo=TweenInfo, Enum=Enum, RaycastParams=RaycastParams, Instance=Instance, workspace=workspace, game=game, task=task, script=script, renderSteppedFns=renderSteppedFns, flushDeferred=flushDeferred, V3=V3 }
+return { Vector3=Vector3, Vector2=Vector2, CFrame=CFrame, Color3=Color3, UDim2=UDim2, UDim=UDim, TweenInfo=TweenInfo, ColorSequence=ColorSequence, ColorSequenceKeypoint=ColorSequenceKeypoint, Enum=Enum, RaycastParams=RaycastParams, Instance=Instance, workspace=workspace, game=game, task=task, script=script, renderSteppedFns=renderSteppedFns, flushDeferred=flushDeferred, V3=V3 }

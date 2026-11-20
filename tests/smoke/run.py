@@ -20,8 +20,8 @@ inj = (
     'local realRequire = require\n'
     'local S = realRequire("./_stubs")\n'
     'local function require(m) if type(m) == "table" then return m end return realRequire(m) end\n'
-    'local Vector3, Vector2, CFrame, Color3, UDim2, UDim, TweenInfo, Enum, RaycastParams, Instance, workspace, game, task, script = '
-    'S.Vector3, S.Vector2, S.CFrame, S.Color3, S.UDim2, S.UDim, S.TweenInfo, S.Enum, S.RaycastParams, S.Instance, S.workspace, S.game, S.task, S.script\n'
+    'local Vector3, Vector2, CFrame, Color3, UDim2, UDim, TweenInfo, ColorSequence, ColorSequenceKeypoint, Enum, RaycastParams, Instance, workspace, game, task, script = '
+    'S.Vector3, S.Vector2, S.CFrame, S.Color3, S.UDim2, S.UDim, S.TweenInfo, S.ColorSequence, S.ColorSequenceKeypoint, S.Enum, S.RaycastParams, S.Instance, S.workspace, S.game, S.task, S.script\n'
 )
 tmp = tempfile.mkdtemp()
 try:

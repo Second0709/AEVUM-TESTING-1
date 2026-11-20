@@ -650,7 +650,7 @@ function Board3D.create(ctx)
 			if discAttacker == nil then k = 0.8
 			elseif discAttacker == side then k = pulsing and (1.05 + 0.2 * math.sin(t * 4.4)) or 1.1
 			else k = 0.45 end
-			scene.refs.disc[side].BackgroundColor3 = Skins.shade(Skins.side(scene.skin, side), k)
+			scene.refs.disc.set(side, Skins.shade(Skins.side(scene.skin, side), k))
 		end
 	end
 

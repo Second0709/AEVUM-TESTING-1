@@ -99,6 +99,25 @@ do
 	hi.sc.refs.setDeck("Self", 30)
 	expect(hi.sc.refs.decks.Self.Size.Y > 1, "la pila del mazo crece con las cartas")
 	expect(hi.sc.refs.markers["Self:Bench:3"] ~= nil and hi.sc.refs.hit["Enemy:Combat:1"] ~= nil, "marcadores y zonas por casilla")
+	-- Disco de turno: círculo (Frame + UICorner) con degradado de corte duro; sin CanvasGroup (no recortó en Studio)
+	local dcol = {}
+	for _, d in ipairs(hi.sc.folder:GetDescendants()) do
+		expect(d.ClassName ~= "CanvasGroup", "sin CanvasGroup en la arena")
+		if d.Name == "DiscoCirculo" then dcol = d:GetChildren() end
+	end
+	local hasCorner, hasGrad = false, false
+	for _, c in ipairs(dcol) do
+		hasCorner = hasCorner or c.ClassName == "UICorner"
+		hasGrad = hasGrad or c.ClassName == "UIGradient"
+	end
+	expect(hasCorner and hasGrad, "el disco es un círculo redondeado con degradado")
+	local RED, BLUE2 = { 200, 40, 40 }, { 40, 80, 200 }
+	hi.sc.refs.disc.set("Enemy", RED)
+	hi.sc.refs.disc.set("Self", BLUE2)
+	local kp = hi.sc.refs.disc.gradient.Color.Keypoints
+	expect(#kp == 4 and kp[1].Value == RED and kp[2].Value == RED and kp[3].Value == BLUE2 and kp[4].Value == BLUE2,
+		"disco: arriba el color del rival, abajo el tuyo, con corte en el centro")
+	expect(kp[2].Time < kp[3].Time, "los tiempos del corte no se repiten")
 	-- Skins: las tres construyen
 	for _, name in ipairs({ "Ruinas", "Circuito", "Templo" }) do
 		expect(BoardBuilder.build(S.V3(0, 0, 0), "High", name).refs.disc ~= nil, "la skin " .. name .. " construye la arena")
