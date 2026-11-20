@@ -1,0 +1,1336 @@
+From af98c11a37f8208811537bdfb6327347a6ed529e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 20 Nov 2026 04:39:21 +0000
+Subject: [PATCH 5/5] =?UTF-8?q?feat(3d):=20arena=20limpia=20por=20skin=20(?=
+ =?UTF-8?q?Ruinas),=20disco=20de=20turno,=20barreras=20y=20reencuadre=20de?=
+ =?UTF-8?q?=20c=C3=A1mara?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Parche 1 (a-resto, c, d, e, f):
+- Skins (datos puros: Ruinas, Circuito, Templo) y Config.Client.Skin = "Ruinas". Rojo/coral = rival,
+  azul = jugador. Iluminación clara y local por skin (sol alto, bloom suave, atmósfera ligera).
+- BoardBuilder reescrito: 114 partes en calidad alta (antes 233), 6 luces (antes 7), suelo liso en lugar
+  del suelo de roca, baldosas de 1 pieza con grabado en SurfaceGui (octágono en Banca, círculo en
+  Combate), río de luz animado, torres en las esquinas, pedestal de mazo (la pila crece con las cartas),
+  pozo de cementerio, luciérnagas (solo calidad alta). Fuera: letreros gigantes, canales y franjas de neón.
+- Bugs: toda pieza redonda pasa por disc() con Shape = Cylinder; cristal facetado (fuste de 8 caras + 2
+  puntas); zonas táctiles finas (22 piezas consultables en total, la de casilla es también el marcador).
+- Disco de turno en el centro: mitad roja (rival) y azul (tú); brilla y pulsa la de view.attackerIdx y la
+  otra baja a ~45 %. Ya no se desplaza.
+- Barrera baja y translúcida tras cada Banca + surco hasta el cristal; Layout.pulsePath deja listo el
+  camino de los pulsos (Parche 3).
+- Medallón de vida pequeño y contadores discretos de mazo y pozo (sin BillboardGui AlwaysOnTop).
+- Cámara: pitch 58° -> 46° y espacios más justos (ROW_COMBAT 5.2, ROW_BENCH 12.4, SIDE_X 16.5).
+  Carta ~84 px de ancho a 1080p (antes ~72). Layout.cardScreenWidth vigila la legibilidad.
+- Pruebas: Skins.spec, Layout.spec ampliado y humo con presupuesto de partes/luces/redondos/zonas táctiles
+  y disco de turno.
+- docs: estado del Parche 1, diferencias respecto a lo previsto y lista de verificación en Studio.
+---
+ docs/PLAN_TABLERO_3D.md                       |  40 +-
+ src/ReplicatedStorage/AEVUM/Config.luau       |   3 +-
+ .../AEVUM/AevumClient.client.luau             |   2 +-
+ .../AEVUM/UI3D/Board3D.luau                   | 112 ++++-
+ .../AEVUM/UI3D/BoardBuilder.luau              | 419 ++++++++++++------
+ .../AEVUM/UI3D/CameraRig.luau                 |   2 +-
+ .../AEVUM/UI3D/CardView.luau                  |  15 +-
+ .../AEVUM/UI3D/Layout.luau                    |  58 ++-
+ .../AEVUM/UI3D/Skins.luau                     |  94 ++++
+ tests/Layout.spec.luau                        |  45 +-
+ tests/Skins.spec.luau                         |  45 ++
+ tests/smoke/smoke.luau                        |  63 +++
+ 12 files changed, 718 insertions(+), 180 deletions(-)
+ create mode 100644 src/StarterPlayerScripts/AEVUM/UI3D/Skins.luau
+ create mode 100644 tests/Skins.spec.luau
+
+diff --git a/docs/PLAN_TABLERO_3D.md b/docs/PLAN_TABLERO_3D.md
+index ae113d7..dda643b 100644
+--- a/docs/PLAN_TABLERO_3D.md
++++ b/docs/PLAN_TABLERO_3D.md
+@@ -17,16 +17,17 @@ Sirve para retomar el trabajo en un chat nuevo sin perder contexto. **Sustituye
+ 
+ ## 1. Estado real de la rama `3D-implement`
+ 
+-Commits sobre `main`: Fase 1 (templo estático, cámara adaptable) · cartas 3D + animaciones + entrada táctil · archivos de prueba.
++Commits sobre `main`: Fase 1 (templo estático, cámara adaptable) · cartas 3D + animaciones + entrada táctil · archivos de prueba · **Parche 1 (cartas mínimas + arena limpia por skin)**.
+ Código en `src/StarterPlayerScripts/AEVUM/UI3D/`:
+ 
+ | Módulo | Qué hace hoy |
+ |---|---|
+-| `Layout.luau` | Posiciones puras (casillas, cristales, mazos, cementerios, orbe) y `cameraFit`. Probado en `tests/Layout.spec.luau`. |
++| `Layout.luau` | Posiciones puras (casillas, cristales, mazos, cementerios, disco, barreras, esquinas), `pulsePath` (camino barrera → cristal), `cameraFit` y `cardScreenWidth` (legibilidad). Probado en `tests/Layout.spec.luau`. |
++| `Skins.luau` | Paletas de arena como datos puros (Ruinas, Circuito, Templo). `Config.Client.Skin` elige. Probado en `tests/Skins.spec.luau`. |
+ | `Motion.luau` | Pistas de animación **puras** (estado `{x,y,z,flip,tilt,scale}`, tramos con `to` fijo o "vivo", arco, easing, `delay`, `onEnd`). Probado en `tests/Motion.spec.luau`. |
+-| `BoardBuilder.luau` | Construye el templo (233 partes, 7 luces, 17 neones que pulsan), zonas táctiles invisibles por casilla, marcadores de casilla y la iluminación local. |
+-| `CameraRig.luau` | Cámara `Scriptable` (FOV 45°, inclinación 58°) que ajusta la distancia a la proporción de pantalla. |
+-| `CardView.luau` | Modelo 3D de carta con pool (40 instancias por carta): cuerpo de oro, `SurfaceGui` frontal y reverso, anillo `SelectionBox`. |
++| `BoardBuilder.luau` | Construye la arena según la skin: 114 partes en calidad alta (antes 233), 6 luces, baldosas de 1 pieza con grabado en `SurfaceGui`, río de luz, disco de turno, barreras con surco, torres, pedestales, pozos, luciérnagas. 22 zonas táctiles (20 casillas + 2 cristales; la zona de casilla es también el marcador). `applyLighting` usa la luz de la skin. |
++| `CameraRig.luau` | Cámara `Scriptable` (FOV 45°, inclinación 46°) que ajusta la distancia a la proporción de pantalla. |
++| `CardView.luau` | Modelo 3D de carta con pool (19 instancias por carta): cuerpo de oro, cara mínima (arte + ATK + VIDA + etiqueta) y reverso en piezas finas con `SurfaceGui` en Front/Back, anillo `SelectionBox`. `faceRotation()` y `FACE_YAW` fijan la orientación de TODAS las caras (cartas, baldosas, disco). |
+ | `Input3D.luau` | Toque/clic con raycast (tolerancia de arrastre 14 px; la GUI 2D tiene prioridad). |
+ | `Board3D.luau` | Reconciliador **por uid** que compara el `view` nuevo con el anterior y lanza las animaciones. Devuelve `render, show, hide, api`. |
+ 
+@@ -37,7 +38,7 @@ Mano → Banca · Banca → Combate (con volteo si se revela) · volteo en sitio
+ **Nota:** ninguna regla actual devuelve una carta del tablero a la mano; esa animación existe pero hoy no la dispara nada.
+ 
+ ### Lo que todavía NO existe
+-Disco de turno · barreras · divisor central · entorno (torres, pozos, pedestales) · ataque directo · bloqueo (choque) · vida diferida hasta el impacto · efecto de muerte · hechizo activado · pila y carrusel del cementerio · detalle grande de carta al tocar · skins de arena.
++Ataque directo · bloqueo (choque) · vida diferida hasta el impacto · efecto de muerte · hechizo activado · pila y carrusel del cementerio (hoy el pozo solo muestra el contador) · grietas de la barrera y pulsos (el surco y `Layout.pulsePath` ya existen). Hecho en el Parche 1: disco de turno, barreras, divisor, entorno, detalle grande al tocar (`UI/CardDetail`, panel derecho), skins.
+ 
+ ---
+ 
+@@ -146,6 +147,25 @@ A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar
+    e) Barreras estáticas + surco barrera → cristal.
+    f) Reencuadre de cámara (pitch ~46°, espacios más justos).
+    Dos commits: (b) y (c–f), porque comparten el cálculo de cámara.
++   **ESTADO: implementado y probado sin Studio (3 specs + humo en verde). Pendiente de verificar en Studio (lista abajo).**
++
++   *Qué quedó distinto a lo previsto (para no sorprender):*
++   - Torres de **12 lados** (3 bloques girados 0°/30°/60°), no hexagonales: un hexágono exacto exige intersección y las partes solo permiten unión.
++   - Barrera: franjas verticales del color del bando; **sin glifos** (llegarán con las grietas del Parche 3).
++   - Detalle de carta: panel fijo en la columna derecha (no flotante). Cartas boca abajo del rival no abren detalle; la mano 2D tampoco (ya se lee).
++   - El disco ya **no se desplaza** hacia quien ataca (antes el orbe sí): solo brilla/pulsa la mitad del atacante (~45 % la otra).
++   - Zona táctil y marcador de casilla son la **misma pieza** (transparente, `CanQuery`); el resto de la arena es `CanQuery = false`.
++   - Constantes nuevas: `ROW_COMBAT 5.2`, `ROW_BENCH 12.4`, `SIDE_X 16.5`, `DISC_R 2.0`, pitch 46°. Resultado medido: carta ≈ **84 px** de ancho a 1080p (antes ≈ 72; objetivo 80–90).
++   - Solo Ruinas está pensada como acabado final; Circuito y Templo existen como paletas (probadas estructuralmente) pero sin ajuste visual.
++
++   *Verificar en Studio (lo único que no se puede probar fuera):*
++   1. Texto de cartas derecho y sin espejo (también en cartas reveladas del rival). Si sale al revés: `CardView.FACE_YAW = 0`; corrige cartas, baldosas y disco a la vez.
++   2. Disco de turno visible: su `SurfaceGui` está en una pieza con `Transparency = 1` y usa `CanvasGroup` + `UICorner` para el recorte circular. Si no se ve, poner la pieza con transparencia 0 y color de la mesa.
++   3. Baldosas grabadas (octágono/círculo) legibles y orientadas; barrera visible desde la cámara (cara Back).
++   4. Silueta del cristal (fuste de 8 caras + 2 puntas de cubo): ¿se lee como gema?
++   5. Medallón de vida pequeño sobre el plinto, sin tapar cartas; contadores de mazo/pozo discretos.
++   6. Tocar casillas vacías, cartas y cristales (zonas más finas que antes) en PC y en móvil.
++   7. Rendimiento en calidad alta y baja (`Config.Client.Quality`).
+ 2. **Parche 2 — Pila y carrusel del cementerio** (solo cliente).
+ 3. **Parche 3 — Ataque directo y combate** (evento `DirectHit`, vida diferida, pulsos, grietas, bloqueo).
+ 4. **Parche 4 — Revivir desde el cementerio** (regla de servidor + animaciones).
+@@ -163,7 +183,9 @@ A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar
+ - Hacer `render` que borra y recrea todo: el 3D reconcilia por uid o no habrá animaciones.
+ - Mutar una tabla mientras se recorre con `pairs` dentro de callbacks de animación: usar `task.defer` para `requestRender`.
+ - `ctx.fn and ctx.fn(x)` trunca los retornos múltiples: llamar `a, b = ctx.fn(x)` explícitamente.
+-- Los resultados de `luau` CLI: las globales son de solo lectura (ver `tests/smoke`).
++- Los resultados de `luau` CLI: las globales son de solo lectura (ver `tests/smoke`). Por eso la lógica pura (`Skins.shadeRgb`) se separa de la que crea `Color3`.
++- Orientación: **no usar la cara Top** para un `SurfaceGui` con texto. Usar Front/Back de una pieza fina girada con `CardView.faceRotation()` (matemática verificada; la convención de Roblox, solo en Studio).
++- Un patrón de prueba que asume la sangría equivocada falla en silencio al parchear: comprobar siempre que el reemplazo se aplicó.
+ 
+ ---
+ 
+@@ -176,8 +198,8 @@ A 1080p una carta mide ~72 px de ancho. Con la mesa entera en pantalla, esperar
+ - **Claude no puede ejecutar Roblox Studio ni subir al repo.** Entrega parches (`git format-patch`) que se aplican con `git am` en la rama, y comprueba que aplican limpio sobre ella. Rojo (`rojo serve`) sincroniza con Studio. Se prueba en Studio contra el bot (`ServerConfig.Bot.Enabled = true`).
+ - Ante un fallo, enviar el mensaje completo de Output con la línea y, si es visual, una captura.
+ - **Pruebas sin Studio** (ejecutar antes de entregar cualquier parche):
+-  - `luau tests/Match.spec.luau` · `luau tests/Layout.spec.luau` · `luau tests/Motion.spec.luau`
+-  - `python3 tests/smoke/run.py [ruta a luau]`: simula la API mínima de Roblox y ejecuta los escenarios de `Board3D` (jugar, robar, avanzar con volteo, cementerio, devolver, evolución, partida nueva). Si UI3D usa API nueva, ampliar `tests/smoke/_stubs.luau`.
++  - `luau tests/Match.spec.luau` · `luau tests/Layout.spec.luau` · `luau tests/Motion.spec.luau` · `luau tests/Skins.spec.luau`
++  - `python3 tests/smoke/run.py [ruta a luau]`: simula la API mínima de Roblox y ejecuta los escenarios de `Board3D` (jugar, robar, avanzar con volteo, cementerio, devolver, evolución, partida nueva) y comprueba el presupuesto de la arena (partes, luces, redondos con `Shape = Cylinder`, zonas táctiles), el peso por carta, el disco de turno y `CardDetail`. Si UI3D usa API nueva, ampliar `tests/smoke/_stubs.luau`.
+   - Obtener `luau`: `curl -sL -o luau.zip https://github.com/luau-lang/luau/releases/latest/download/luau-ubuntu.zip && unzip luau.zip`.
+ - Mantener los nombres de acciones y la validación de `Validator.luau`.
+ 
+diff --git a/src/ReplicatedStorage/AEVUM/Config.luau b/src/ReplicatedStorage/AEVUM/Config.luau
+index 3d06da8..259e699 100644
+--- a/src/ReplicatedStorage/AEVUM/Config.luau
++++ b/src/ReplicatedStorage/AEVUM/Config.luau
+@@ -37,7 +37,8 @@ Config.Match = {
+ -- Opciones del cliente (tablero 3D). Board3D = false vuelve al tablero 2D clásico.
+ Config.Client = {
+ 	Board3D = true,
+-	Quality = "High", -- "High" | "Low" (Low: sin brillos animados, sin luces ni sombras)
++	Quality = "High", -- "High" | "Low" (Low: sin brillos animados, sin luces, sin sombras, sin luciérnagas ni río animado)
++	Skin = "Ruinas", -- "Ruinas" | "Circuito" | "Templo" (paletas en UI3D/Skins). Se empieza con Ruinas
+ }
+ 
+ Config.Sounds = {
+diff --git a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+index a9eea33..e46e0b9 100644
+--- a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
++++ b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+@@ -381,7 +381,7 @@ end
+ local renderBoard3D, show3D, hide3D = nil, nil, nil
+ if use3D then
+ 	renderBoard3D, show3D, hide3D, board3dApi = Board3DUI.create({
+-		quality = ClientCfg.Quality, cards = Cards, theme = C, handRect = handRect,
++		quality = ClientCfg.Quality, skin = ClientCfg.Skin, cards = Cards, theme = C, handRect = handRect,
+ 		isTarget = isTarget, activatableAt = activatableAt,
+ 		onMyBench = onMyBench, onMyCombat = onMyCombat, onOppBench = onOppBench, onOppCombat = onOppCombat,
+ 		onSlot = onSlot3D, onAvatar = onAvatar3D, onMiss = onMiss3D,
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+index 1d1ed70..3f33a1a 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+@@ -10,7 +10,7 @@
+ -- Tu mano sigue siendo 2D: las cartas 3D salen y llegan a la posición del botón de la mano.
+ --
+ -- ctx:
+---   origin, quality, cards (CardDatabase.Data), theme
++--   origin, quality, skin (nombre de Skins; Config.Client.Skin), cards (CardDatabase.Data), theme
+ --   handRect(uid) -> centro, tamaño del botón de esa carta en la mano (en píxeles) o nil
+ --   isTarget(side, zone, slot, uid) · activatableAt(slot)
+ --   onMyBench / onMyCombat / onOppBench / onOppCombat (slot, inst) · onSlot(side, zone, index)
+@@ -27,6 +27,7 @@ local CardView = require(script.Parent.CardView)
+ local Input3D = require(script.Parent.Input3D)
+ local Layout = require(script.Parent.Layout)
+ local Motion = require(script.Parent.Motion)
++local Skins = require(script.Parent.Skins)
+ 
+ local Board3D = {}
+ 
+@@ -41,6 +42,7 @@ function Board3D.create(ctx)
+ 	ctx = ctx or {}
+ 	local origin = ctx.origin or DEFAULT_ORIGIN
+ 	local quality = ctx.quality or "High"
++	local skinName = ctx.skin or Skins.Default
+ 	local cardsDb = ctx.cards
+ 	local theme = ctx.theme
+ 
+@@ -55,6 +57,8 @@ function Board3D.create(ctx)
+ 	local prev = nil -- snapshot del view anterior
+ 	local activeMarkers = {} -- clave de casilla -> true
+ 	local labels = {}
++	local discAttacker = nil -- "Self" | "Enemy" | nil: quién tiene el derecho de ataque (view.attackerIdx)
++	local discDirty = true
+ 
+ 	-- ══════════════ Posiciones y destinos ══════════════
+ 
+@@ -461,33 +465,56 @@ function Board3D.create(ctx)
+ 
+ 	-- ══════════════ Resaltes, marcadores y contadores ══════════════
+ 
++	-- Medallón de vida pequeño sobre el plinto del cristal y contadores discretos sobre mazo y cementerio.
++	-- Nada de letreros gigantes ni AlwaysOnTop: no tapan la mesa (error ya cometido, plan §9).
+ 	local function ensureLabels()
+ 		if labels.ready or not scene then return end
+ 		labels.ready = true
+-		local function make(adornee, offsetY, size, color)
++		local function billboard(adornee, offset, w, h)
+ 			local bb = Instance.new("BillboardGui")
+-			bb.Size = UDim2.fromOffset(size.X, size.Y)
+-			bb.StudsOffset = Vector3.new(0, offsetY, 0)
+-			bb.AlwaysOnTop = true
++			bb.Size = UDim2.fromOffset(w, h)
++			bb.StudsOffset = offset
++			bb.AlwaysOnTop = false
+ 			bb.LightInfluence = 0
+ 			bb.Adornee = adornee
+ 			bb.Parent = adornee
++			return bb
++		end
++		local function text(parent, props)
+ 			local l = Instance.new("TextLabel")
+-			l.Size = UDim2.fromScale(1, 1)
+ 			l.BackgroundTransparency = 1
+ 			l.Font = Enum.Font.GothamBlack
+ 			l.TextScaled = true
+-			l.TextColor3 = color
+ 			l.TextStrokeTransparency = 0.35
+ 			l.Text = ""
+-			l.Parent = bb
++			for k, v in pairs(props) do l[k] = v end
++			l.Parent = parent
+ 			return l
+ 		end
++		local frameColor = Skins.rgb(scene.skin.frame)
+ 		for _, side in ipairs(SIDES) do
+-			local color = BoardBuilder.Palette[side]
+-			labels["vital" .. side] = make(scene.refs.vitals[side], 2, Vector2.new(120, 56), color)
+-			labels["deck" .. side] = make(scene.refs.decks[side], 1.6, Vector2.new(110, 34), color)
+-			labels["grave" .. side] = make(scene.refs.graveyards[side], 1.6, Vector2.new(110, 34), color)
++			local color = scene.palette[side]
++			-- Medallón: círculo oscuro con el número de vida (+ escudo en pequeño)
++			local bb = billboard(scene.refs.plinth[side], Vector3.new(0, 1.1, 2.2), 46, 46)
++			local medal = Instance.new("Frame")
++			medal.Size = UDim2.fromScale(1, 1)
++			medal.BackgroundColor3 = Color3.fromRGB(20, 18, 34)
++			medal.BorderSizePixel = 0
++			medal.Parent = bb
++			local corner = Instance.new("UICorner")
++			corner.CornerRadius = UDim.new(1, 0)
++			corner.Parent = medal
++			local stroke = Instance.new("UIStroke")
++			stroke.Color = frameColor
++			stroke.Thickness = 3
++			stroke.Parent = medal
++			labels["hp" .. side] = text(medal, { Size = UDim2.fromScale(1, 1), TextColor3 = Color3.fromRGB(255, 255, 255) })
++			labels["shield" .. side] = text(bb, { Position = UDim2.new(1, -2, 0, -6), Size = UDim2.fromOffset(26, 16),
++				TextColor3 = Color3.fromRGB(150, 210, 255), Visible = false })
++			-- Contadores sobre las pilas
++			labels["deck" .. side] = text(billboard(scene.refs.decks[side], Vector3.new(0, 1.5, 0), 40, 18), { Size = UDim2.fromScale(1, 1), TextColor3 = color })
++			labels["grave" .. side] = text(billboard(scene.refs.graveyards[side], Vector3.new(0, 1.3, 0), 40, 18), { Size = UDim2.fromScale(1, 1),
++				TextColor3 = Color3.fromRGB(235, 235, 245) })
+ 		end
+ 	end
+ 
+@@ -589,16 +616,41 @@ function Board3D.create(ctx)
+ 			end
+ 		end
+ 
+-		-- Cristales de vida (objetivo "Avatar") y contadores
++		-- Cristales de vida (objetivo "Avatar"), medallón, contadores y pila del mazo
+ 		ensureLabels()
+ 		for _, side in ipairs(SIDES) do
+ 			local pl = side == "Self" and view.me or view.opp
+-			local crystal = scene.refs.vitals[side]
+-			crystal.Color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or BoardBuilder.Palette[side]
+-			local shield = (pl.shield or 0) > 0 and (" (+" .. pl.shield .. ")") or ""
+-			labels["vital" .. side].Text = tostring(pl.hp) .. shield
+-			labels["deck" .. side].Text = "MAZO " .. tostring(pl.deck)
+-			labels["grave" .. side].Text = "CEM. " .. tostring(#pl.graveyard)
++			local color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or scene.palette[side]
++			for _, p in ipairs(scene.refs.vitalGem[side]) do p.Color = color end
++			labels["hp" .. side].Text = tostring(pl.hp)
++			local shield = pl.shield or 0
++			labels["shield" .. side].Visible = shield > 0
++			labels["shield" .. side].Text = "+" .. shield
++			labels["deck" .. side].Text = tostring(pl.deck)
++			labels["grave" .. side].Text = tostring(#pl.graveyard)
++			scene.refs.setDeck(side, pl.deck)
++		end
++
++		-- Disco de turno: brilla la mitad de quien tiene el derecho de ataque (view.attackerIdx)
++		local attacker = nil
++		if view.attackerIdx and not view.over then attacker = (view.attackerIdx == view.you) and "Self" or "Enemy" end
++		discAttacker = attacker
++		discDirty = true
++	end
++
++	-- Brillo de las mitades del disco: la de quien ataca brilla y pulsa; la otra baja a ~45 %.
++	-- Sin atacante (partida terminada): las dos a un brillo neutro.
++	local function updateDisc(t)
++		if not scene then return end
++		local pulsing = discAttacker ~= nil and quality ~= "Low"
++		if not (discDirty or pulsing) then return end
++		discDirty = false
++		for _, side in ipairs(SIDES) do
++			local k
++			if discAttacker == nil then k = 0.8
++			elseif discAttacker == side then k = pulsing and (1.05 + 0.2 * math.sin(t * 4.4)) or 1.1
++			else k = 0.45 end
++			scene.refs.disc[side].BackgroundColor3 = Skins.shade(Skins.side(scene.skin, side), k)
+ 		end
+ 	end
+ 
+@@ -645,6 +697,18 @@ function Board3D.create(ctx)
+ 			Motion.step(card.track, dt)
+ 			if flyers[card] then CardView.apply(card, origin, 0) end -- onEnd puede haberla liberado ya
+ 		end
++		updateDisc(t)
++		if quality ~= "Low" and scene then
++			local river = scene.anim.river
++			if river then
++				for i, f in ipairs(river.frames) do f.Position = UDim2.fromScale(((i - 1) / river.n + t * 0.1) % 1, 0) end
++			end
++			for _, f in ipairs(scene.anim.fireflies) do
++				local ph = (t * 0.18 + f.phase) % 1
++				f.part.Position = origin + Vector3.new(f.x + math.sin(t + f.phase * 6) * 0.6, 0.8 + ph * 3.2, f.z)
++				f.part.Transparency = 1 - math.sin(math.pi * ph) * 0.75
++			end
++		end
+ 		if next(activeMarkers) then
+ 			local a = 0.5 + 0.15 * math.sin(t * 4)
+ 			for key in pairs(activeMarkers) do scene.refs.markers[key].Transparency = a end
+@@ -655,14 +719,15 @@ function Board3D.create(ctx)
+ 		if visible then return end
+ 		visible = true
+ 		if not scene then
+-			scene = BoardBuilder.build(origin, quality)
++			CardView.setSkin(Skins.get(skinName)) -- colores de bando del reverso (antes de crear cartas)
++			scene = BoardBuilder.build(origin, quality, skinName)
+ 			cardsFolder = Instance.new("Folder")
+ 			cardsFolder.Name = "Cartas"
+ 			cardsFolder.Parent = scene.folder
+ 			pool = CardView.newPool(cardsFolder, cardsDb, quality)
+ 		end
+ 		scene.folder.Parent = workspace
+-		restoreLighting = BoardBuilder.applyLighting(quality)
++		restoreLighting = BoardBuilder.applyLighting(quality, skinName)
+ 		stopCamera = CameraRig.start(origin)
+ 		stepConn = RunService.RenderStepped:Connect(step)
+ 		disconnectInput = Input3D.connect({
+@@ -673,7 +738,7 @@ function Board3D.create(ctx)
+ 		if quality ~= "Low" then
+ 			local info = TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+ 			for _, p in ipairs(scene.glow) do
+-				local tween = TweenService:Create(p, info, { Transparency = 0.45 })
++				local tween = TweenService:Create(p, info, { Transparency = math.min(0.9, scene.glowBase[p] + 0.35) })
+ 				tween:Play()
+ 				pulses[#pulses + 1] = tween
+ 			end
+@@ -689,7 +754,7 @@ function Board3D.create(ctx)
+ 		pulses = {}
+ 		resetCards()
+ 		if scene then
+-			for _, p in ipairs(scene.glow) do p.Transparency = p.Name:find("Cristal") and 0.1 or 0 end
++			for _, p in ipairs(scene.glow) do p.Transparency = scene.glowBase[p] end
+ 			scene.folder.Parent = nil
+ 		end
+ 		if stopCamera then stopCamera() stopCamera = nil end
+@@ -713,6 +778,7 @@ function Board3D.create(ctx)
+ 	local api = {
+ 		isHandHidden = function(uid) return hidden[uid] == true end,
+ 		reset = resetCards,
++		discAttacker = function() return discAttacker end,
+ 		debug = function()
+ 			local n, f, h = 0, 0, 0
+ 			for _ in pairs(live) do n += 1 end
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+index 1eb06cc..bd75221 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+@@ -1,43 +1,65 @@
+ --!nonstrict
+--- AEVUM · Tablero 3D: templo estático (v1.3.0)
+--- Construye UNA sola vez la mesa de piedra y oro con surcos y glifos de neón.
+--- No conoce el estado de la partida: solo geometría. Las cartas las pone Board3D (Fase 2).
++-- AEVUM · Tablero 3D: arena (v1.3.0)
++-- Construye UNA sola vez la arena según la skin (Config.Client.Skin). No conoce el estado de la partida:
++-- solo geometría. Las cartas las pone Board3D.
++--
++-- Diseño (ver docs/PLAN_TABLERO_3D.md §4 y docs/referencia/aevum_tablero_v2.html):
++--   · El detalle vive en el ENTORNO (4 torres, pedestal de mazo, pozo de cementerio, luciérnagas); el
++--     suelo de juego es liso y de poco contraste para que las cartas destaquen.
++--   · Baldosas grabadas de UNA pieza por casilla: el grabado (octágono en Banca, círculo en Combate,
++--     línea del color del bando) se dibuja en un SurfaceGui sobre la placa.
++--   · Divisor central: río de luz animado con el disco de turno encima (mitad roja = rival, azul = tú).
++--   · Barrera baja y translúcida detrás de cada Banca y un surco barrera → cristal por donde irán los pulsos.
++--   · Todo objeto redondo usa disc(), que activa Shape = Cylinder (error ya cometido: ver plan §9).
++--   · Las caras con SurfaceGui usan la misma orientación determinista que las cartas (CardView.faceRotation).
++-- Presupuesto: <= ~130 partes (tests/smoke lo comprueba).
+ 
+ local Lighting = game:GetService("Lighting")
+ 
+ local Layout = require(script.Parent.Layout)
++local Skins = require(script.Parent.Skins)
++local CardView = require(script.Parent.CardView)
+ 
+ local BoardBuilder = {}
+ 
+-local PAL = {
+-	stone = Color3.fromRGB(40, 38, 48),
+-	tier2 = Color3.fromRGB(28, 26, 34),
+-	tier3 = Color3.fromRGB(21, 20, 27),
+-	floor = Color3.fromRGB(13, 12, 18),
+-	slot = Color3.fromRGB(30, 29, 38),
+-	gold = Color3.fromRGB(176, 138, 66),
+-	glyph = Color3.fromRGB(255, 196, 110), -- neón neutro (ámbar)
+-	Self = Color3.fromRGB(77, 225, 255), -- cian = jugador
+-	Enemy = Color3.fromRGB(255, 90, 170), -- rosa = rival
+-}
+-BoardBuilder.Palette = PAL
+-
+ local SLOTS = 5
+ local CYL = CFrame.Angles(0, 0, math.pi / 2) -- un cilindro de Roblox tiene el eje en X: lo giramos para que mire hacia arriba
++-- Un cubo con un vértice hacia arriba (punta de cristal): lleva (1,1,1) a +Y
++local TIP = CFrame.Angles(-math.atan(math.sqrt(2)), -math.pi / 4, 0)
++local SIDES = { "Self", "Enemy" }
++
++-- Colores de bando de una skin: Self = azul (tú) · Enemy = rojo/coral (rival)
++function BoardBuilder.palette(skinName)
++	local skin = Skins.get(skinName)
++	return { Self = Skins.rgb(skin.ally), Enemy = Skins.rgb(skin.rival) }
++end
+ 
+--- Construye el templo. origin: Vector3 del centro de la mesa. quality: "High" | "Low".
+--- Devuelve { folder, glow, refs }:
+---   glow: partes de neón que pueden pulsar (solo calidad alta)
+---   refs: partes con nombre que usarán las fases siguientes (casillas, cristales, orbe)
+-function BoardBuilder.build(origin, quality)
++-- Construye la arena. origin: Vector3 del centro de la mesa. quality: "High" | "Low". skinName: ver Skins.
++-- Devuelve { folder, glow, glowBase, refs, anim, palette, skin }:
++--   glow: partes de neón que pueden pulsar (solo calidad alta) · glowBase[parte] = su transparencia en reposo
++--   refs: partes con nombre que usan las fases siguientes (zonas táctiles, cristales, mazos, disco…)
++--   anim: elementos que se animan cada fotograma (río, luciérnagas)
++function BoardBuilder.build(origin, quality, skinName)
+ 	local high = quality ~= "Low"
++	local skin = Skins.get(skinName)
++	local rgb, shade = Skins.rgb, Skins.shade
++	local face = CardView.faceRotation() -- misma orientación determinista que las cartas
++	local material = Enum.Material[skin.material] or Enum.Material.Slate
++	local METAL, NEON, SMOOTH = Enum.Material.Metal, Enum.Material.Neon, Enum.Material.SmoothPlastic
++
+ 	local folder = Instance.new("Folder")
+ 	folder.Name = "AevumBoard3D"
+-	local glow = {}
+-	local refs = { slots = {}, vitals = {}, decks = {}, graveyards = {}, hit = {}, markers = {}, vitalHit = {} }
++	local glow, glowBase = {}, {}
++	local anim = { river = nil, fireflies = {} }
++	local refs = {
++		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, graveyards = {},
++		barriers = {}, grooves = {}, plinth = {}, discs = {}, disc = nil,
++	}
++	local palette = BoardBuilder.palette(skinName)
+ 
+ 	-- Crea una pieza anclada. pos es relativa al centro de la mesa.
+-	local function part(name, size, pos, color, material, opts)
++	-- opts: transparency, shape, rot (CFrame), glow (pulsa), query (zona táctil), shadow (proyecta sombra)
++	local function part(name, size, pos, color, mat, opts)
+ 		opts = opts or {}
+ 		local p = Instance.new("Part")
+ 		p.Name = name
+@@ -47,18 +69,31 @@ function BoardBuilder.build(origin, quality)
+ 		p.CanQuery = opts.query == true -- decorado: no estorba al raycast; solo las zonas táctiles lo activan
+ 		p.Size = size
+ 		p.Color = color
+-		p.Material = material or Enum.Material.Slate
++		p.Material = mat or material
+ 		p.TopSurface = Enum.SurfaceType.Smooth
+ 		p.BottomSurface = Enum.SurfaceType.Smooth
+-		p.CastShadow = high and math.max(size.X, size.Y, size.Z) >= 2 and (opts.transparency or 0) < 1
++		p.CastShadow = high and opts.shadow == true
+ 		if opts.transparency then p.Transparency = opts.transparency end
+ 		if opts.shape then p.Shape = opts.shape end
+ 		p.CFrame = CFrame.new(origin + pos) * (opts.rot or CFrame.new())
+-		if opts.glow then glow[#glow + 1] = p end
++		if opts.glow and high then
++			glow[#glow + 1] = p
++			glowBase[p] = opts.transparency or 0
++		end
+ 		p.Parent = folder
+ 		return p
+ 	end
+ 
++	-- Pieza redonda con el eje hacia arriba. SIEMPRE activa Shape = Cylinder (si no, sale cuadrada).
++	local function disc(name, diameter, height, pos, color, mat, opts)
++		opts = opts or {}
++		opts.shape = Enum.PartType.Cylinder
++		opts.rot = CYL
++		local p = part(name, Vector3.new(height, diameter, diameter), pos, color, mat, opts)
++		refs.discs[#refs.discs + 1] = p
++		return p
++	end
++
+ 	local function light(parent, color, range, brightness)
+ 		if not high then return end
+ 		local l = Instance.new("PointLight")
+@@ -69,139 +104,263 @@ function BoardBuilder.build(origin, quality)
+ 		l.Parent = parent
+ 	end
+ 
++	-- SurfaceGui en la cara Front/Back de una pieza fina girada con `face` (orientación conocida)
++	local function surface(p, faceId, w, h, lightInfluence)
++		local g = Instance.new("SurfaceGui")
++		g.Face = faceId
++		g.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
++		g.CanvasSize = Vector2.new(w, h)
++		g.LightInfluence = lightInfluence or 0
++		g.AlwaysOnTop = false
++		g.Parent = p
++		return g
++	end
++
++	local function frame(parent, props)
++		local f = Instance.new("Frame")
++		f.BorderSizePixel = 0
++		for k, v in pairs(props) do f[k] = v end
++		f.Parent = parent
++		return f
++	end
++
++	-- Barra centrada en (x, y) del lienzo, de largo `len` y grosor `th`, girada `deg` grados
++	local function bar(parent, x, y, len, th, deg, color)
++		return frame(parent, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(x, y),
++			Size = UDim2.fromOffset(len, th), Rotation = deg, BackgroundColor3 = color })
++	end
++
++	local function ring(parent, diameter, thickness, color)
++		local f = frame(parent, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++			Size = UDim2.fromOffset(diameter, diameter), BackgroundTransparency = 1 })
++		local c = Instance.new("UICorner")
++		c.CornerRadius = UDim.new(1, 0)
++		c.Parent = f
++		local s = Instance.new("UIStroke")
++		s.Color = color
++		s.Thickness = thickness
++		s.Parent = f
++		return f
++	end
++
+ 	local half = Layout.halfExtents()
+ 	local hx, hz = half.x, half.z
++	local edgeColor = rgb(skin.edge)
++
++	-- ── Entorno y mesa: superficies lisas, de poco contraste ───────────────
++	part("Suelo", Vector3.new(400, 1, 400), Vector3.new(0, -2.9, 0), rgb(skin.env), SMOOTH)
++	part("Escalon", Vector3.new(hx * 2 + 4, 1.2, hz * 2 + 4), Vector3.new(0, -1.8, 0), rgb(skin.stone), material)
++	part("Mesa", Vector3.new(hx * 2, 1.2, hz * 2), Vector3.new(0, -0.6, 0), rgb(skin.floor), material)
+ 
+-	-- ── Suelo y escalones (ziggurat) ───────────────────────────────────────
+-	part("Suelo", Vector3.new(600, 1, 600), Vector3.new(0, -5, 0), PAL.floor, Enum.Material.Basalt)
+-	part("Escalon3", Vector3.new(hx * 2 + 12, 1.5, hz * 2 + 12), Vector3.new(0, -3.75, 0), PAL.tier3, Enum.Material.Basalt)
+-	part("Escalon2", Vector3.new(hx * 2 + 6, 1.5, hz * 2 + 6), Vector3.new(0, -2.25, 0), PAL.tier2, Enum.Material.Basalt)
+-	part("Mesa", Vector3.new(hx * 2, 1.5, hz * 2), Vector3.new(0, -0.75, 0), PAL.stone, Enum.Material.Slate)
+-
+-	-- ── Marco de oro envejecido ────────────────────────────────────────────
+-	local METAL = Enum.Material.Metal
+-	part("MarcoN", Vector3.new(hx * 2 + 1.6, 0.5, 0.8), Vector3.new(0, 0.25, -(hz + 0.4)), PAL.gold, METAL)
+-	part("MarcoS", Vector3.new(hx * 2 + 1.6, 0.5, 0.8), Vector3.new(0, 0.25, hz + 0.4), PAL.gold, METAL)
+-	part("MarcoW", Vector3.new(0.8, 0.5, hz * 2), Vector3.new(-(hx + 0.4), 0.25, 0), PAL.gold, METAL)
+-	part("MarcoE", Vector3.new(0.8, 0.5, hz * 2), Vector3.new(hx + 0.4, 0.25, 0), PAL.gold, METAL)
+-
+-	-- ── Nicho rectangular: placa oscura + 4 bordes de oro + franja de neón ──
+-	-- stripDz: desplazamiento en Z de la franja de neón respecto al centro del nicho.
+-	local function socket(name, cx, cz, color, stripDz)
+-		local W, D = 4.8, 6.4
+-		local base = part(name, Vector3.new(4.5, 0.1, 6.1), Vector3.new(cx, 0.05, cz), PAL.slot, Enum.Material.Basalt)
+-		part(name .. "_BordeN", Vector3.new(W, 0.25, 0.3), Vector3.new(cx, 0.125, cz - D / 2 + 0.15), PAL.gold, METAL)
+-		part(name .. "_BordeS", Vector3.new(W, 0.25, 0.3), Vector3.new(cx, 0.125, cz + D / 2 - 0.15), PAL.gold, METAL)
+-		part(name .. "_BordeW", Vector3.new(0.3, 0.25, D - 0.6), Vector3.new(cx - W / 2 + 0.15, 0.125, cz), PAL.gold, METAL)
+-		part(name .. "_BordeE", Vector3.new(0.3, 0.25, D - 0.6), Vector3.new(cx + W / 2 - 0.15, 0.125, cz), PAL.gold, METAL)
+-		part(name .. "_Glifo", Vector3.new(3, 0.06, 0.16), Vector3.new(cx, 0.12, cz + stripDz), color, Enum.Material.Neon)
+-		return base
+-	end
+-
+-	-- ── Casillas de Combate y Banca (ambos bandos) ─────────────────────────
+-	for _, side in ipairs({ "Self", "Enemy" }) do
++	-- ── Marco ──────────────────────────────────────────────────────────────
++	local frameColor = rgb(skin.frame)
++	part("MarcoN", Vector3.new(hx * 2 + 1.6, 0.5, 0.8), Vector3.new(0, 0.25, -(hz + 0.4)), frameColor, METAL)
++	part("MarcoS", Vector3.new(hx * 2 + 1.6, 0.5, 0.8), Vector3.new(0, 0.25, hz + 0.4), frameColor, METAL)
++	part("MarcoW", Vector3.new(0.8, 0.5, hz * 2), Vector3.new(-(hx + 0.4), 0.25, 0), frameColor, METAL)
++	part("MarcoE", Vector3.new(0.8, 0.5, hz * 2), Vector3.new(hx + 0.4, 0.25, 0), frameColor, METAL)
++
++	-- ── Baldosas grabadas: UNA pieza por casilla + zona táctil que a la vez hace de marcador ──
++	local tileColor = rgb(skin.tile)
++	for _, side in ipairs(SIDES) do
+ 		local sgn = side == "Self" and 1 or -1
++		local sideColor = palette[side]
+ 		for _, zone in ipairs({ "Combat", "Bench" }) do
+-			-- Combate: la franja mira al centro. Banca: mira al borde exterior.
+-			local dz = (zone == "Combat" and -sgn or sgn) * 2.7
+ 			for i = 1, SLOTS do
+ 				local p = Layout.slot(side, zone, i, SLOTS)
+ 				local name = ("Casilla_%s_%s_%d"):format(side, zone, i)
+ 				local key = ("%s:%s:%d"):format(side, zone, i)
+-				refs.slots[key] = socket(name, p.x, p.z, PAL[side], dz)
+-				-- Zona táctil invisible, más generosa que la carta (dedos en móvil)
+-				local hit = part("Zona_" .. name, Vector3.new(5, 0.3, 6.6), Vector3.new(p.x, 0.2, p.z), PAL.slot, nil,
++
++				-- Placa fina (ancho, alto, grosor) girada: su cara Front mira al cielo con el "arriba" hacia -Z
++				local plate = part(name, Vector3.new(4.5, 6.1, 0.1), Vector3.new(p.x, 0.05, p.z), tileColor, SMOOTH, { rot = face })
++				local g = surface(plate, Enum.NormalId.Front, 450, 610, 0.5)
++				if zone == "Bench" then
++					-- Octágono: 8 barras sobre el contorno (apotema 150 px, lado = 2·a·tan(22.5°))
++					local a = 150
++					local len = 2 * a * math.tan(math.pi / 8) + 8
++					for k = 0, 7 do
++						local phi = k * math.pi / 4
++						bar(g, 225 + a * math.cos(phi), 305 + a * math.sin(phi), len, 8, math.deg(phi) + 90, edgeColor)
++					end
++				else
++					ring(g, 300, 8, edgeColor) -- círculo doble en Combate
++					ring(g, 224, 3, edgeColor)
++				end
++				-- Línea del color del bando, en el borde que mira a su dueño
++				bar(g, 225, sgn == 1 and 574 or 36, 270, 10, 0, sideColor)
++				refs.slots[key] = plate
++
++				-- Zona táctil generosa (dedos en móvil), por debajo de las cartas. También es el marcador de
++				-- casilla: Board3D la enciende ("puedes colocar aquí" / "aquí irá el atacante").
++				local hit = part("Zona_" .. name, Vector3.new(4.9, 0.12, 6.5), Vector3.new(p.x, 0.16, p.z), rgb(skin.glow), NEON,
+ 					{ transparency = 1, query = true })
+ 				hit:SetAttribute("Kind", "slot")
+ 				hit:SetAttribute("Side", side)
+ 				hit:SetAttribute("Zone", zone)
+ 				hit:SetAttribute("Index", i)
+ 				refs.hit[key] = hit
+-				-- Marcador de casilla: se enciende para "puedes colocar aquí" / "aquí irá el atacante"
+-				refs.markers[key] = part("Marcador_" .. name, Vector3.new(4.3, 0.04, 5.9), Vector3.new(p.x, 0.17, p.z),
+-					PAL.glyph, Enum.Material.Neon, { transparency = 1 })
++				refs.markers[key] = hit
+ 			end
+ 		end
+ 	end
+ 
+-	-- ── Surcos tipo circuito ───────────────────────────────────────────────
+-	local NEON = Enum.Material.Neon
+-	-- Franja central: surco horizontal a ambos lados del orbe, con nodos
+-	for _, sx in ipairs({ -1, 1 }) do
+-		local len = hx - 2 - 2.6
+-		part("Surco", Vector3.new(len, 0.05, 0.14), Vector3.new(sx * (2.6 + len / 2), 0.03, 0), PAL.glyph, NEON, { glow = true })
+-		for _, nx in ipairs({ 6, 11, 16 }) do
+-			part("Nodo", Vector3.new(0.5, 0.1, 0.5), Vector3.new(sx * nx, 0.05, 0), PAL.glyph, NEON, { glow = true })
+-		end
+-		for _, sz in ipairs({ -1, 1 }) do
+-			part("SurcoFino", Vector3.new(5.6, 0.05, 0.1), Vector3.new(sx * 6.2, 0.03, sz * 1.3), PAL.glyph, NEON)
++	-- ── Divisor central: río de luz animado ────────────────────────────────
++	local river = part("Rio", Vector3.new(hx * 2, 2.2, 0.08), Vector3.new(0, 0.04, 0), rgb(skin.river), SMOOTH,
++		{ rot = face, transparency = 0.2 })
++	local rg = surface(river, Enum.NormalId.Front, 1216, 70, 0)
++	if high then
++		local stripes, n = {}, 12
++		for i = 1, n do
++			stripes[i] = frame(rg, { Size = UDim2.fromOffset(40, 70), BackgroundColor3 = Color3.fromRGB(255, 255, 255),
++				BackgroundTransparency = 0.6 })
+ 		end
++		anim.river = { frames = stripes, n = n }
+ 	end
+-	-- Surcos de cada bando entre Combate y Banca: enlazan el cristal con las filas
+-	local channelZ = (Layout.ROW_COMBAT + 3.2 + Layout.ROW_BENCH - 3.2) / 2
+-	local x0, x1 = -(Layout.SIDE_X - 2), Layout.slotX(SLOTS, SLOTS) + 2.4
+-	for _, side in ipairs({ "Self", "Enemy" }) do
+-		local sgn = side == "Self" and 1 or -1
+-		part("Canal_" .. side, Vector3.new(x1 - x0, 0.05, 0.14), Vector3.new((x0 + x1) / 2, 0.03, sgn * channelZ), PAL[side], NEON)
++	for _, sz in ipairs({ -1, 1 }) do
++		part("OrillaRio", Vector3.new(hx * 2, 0.14, 0.18), Vector3.new(0, 0.07, sz * 1.2), frameColor, METAL)
+ 	end
+ 
+-	-- ── Orbe central (sobre un sello de dos anillos) ───────────────────────
+-	part("SelloAnillo", Vector3.new(0.06, 4.4, 4.4), Vector3.new(0, 0.04, 0), PAL.glyph, NEON, { rot = CYL, glow = true })
+-	part("SelloBase", Vector3.new(0.06, 4.0, 4.0), Vector3.new(0, 0.07, 0), PAL.slot, Enum.Material.Basalt, { rot = CYL })
+-	part("SelloRuna", Vector3.new(0.06, 2.8, 2.8), Vector3.new(0, 0.1, 0), PAL.glyph, NEON, { rot = CYL, glow = true })
+-	part("SelloNucleo", Vector3.new(0.06, 2.4, 2.4), Vector3.new(0, 0.13, 0), PAL.slot, Enum.Material.Basalt, { rot = CYL })
+-	local orb = part("Orbe", Vector3.new(1.6, 1.6, 1.6), Vector3.new(0, Layout.ORB_Y, 0), PAL.glyph, NEON,
+-		{ shape = Enum.PartType.Ball, glow = true })
+-	light(orb, PAL.glyph, 18, 1.4)
+-	refs.orb = orb
++	-- ── Disco de turno: círculo partido, mitad superior roja (rival) e inferior azul (tú) ──
++	local dr = Layout.DISC_R
++	disc("DiscoBase", dr * 2 + 0.4, 0.16, Vector3.new(0, 0.12, 0), frameColor, METAL, { shadow = true })
++	local holder = part("DiscoCara", Vector3.new(dr * 2, dr * 2, 0.02), Vector3.new(0, 0.215, 0), Color3.fromRGB(255, 255, 255),
++		SMOOTH, { rot = face, transparency = 1 })
++	local dg = surface(holder, Enum.NormalId.Front, 400, 400, 0)
++	local group = Instance.new("CanvasGroup") -- recorta las mitades con el círculo
++	group.Size = UDim2.fromScale(1, 1)
++	group.BackgroundTransparency = 1
++	group.BorderSizePixel = 0
++	group.Parent = dg
++	local gc = Instance.new("UICorner")
++	gc.CornerRadius = UDim.new(1, 0)
++	gc.Parent = group
++	local topHalf = frame(group, { Name = "MitadRival", Size = UDim2.fromScale(1, 0.5), BackgroundColor3 = palette.Enemy })
++	local botHalf = frame(group, { Name = "MitadAliada", Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromScale(1, 0.5),
++		BackgroundColor3 = palette.Self })
++	frame(group, { Position = UDim2.new(0, 0, 0.5, -3), Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
++	local dot = frame(group, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++		Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
++	local dc = Instance.new("UICorner")
++	dc.CornerRadius = UDim.new(1, 0)
++	dc.Parent = dot
++	local gs = Instance.new("UIStroke")
++	gs.Color = Color3.fromRGB(255, 255, 255)
++	gs.Thickness = 8
++	gs.Parent = group
++	refs.disc = { Enemy = topHalf, Self = botHalf }
+ 
+ 	-- ── Columna lateral: cristal de vida, mazo y cementerio de cada bando ──
+-	for _, side in ipairs({ "Self", "Enemy" }) do
++	for _, side in ipairs(SIDES) do
+ 		local sgn = side == "Self" and 1 or -1
+-		local color = PAL[side]
++		local color = palette[side]
+ 
++		-- Cristal facetado: fuste de 8 caras (dos bloques a 0° y 45°) con una punta de cubo arriba y abajo
+ 		local v = Layout.vital(side)
+-		part("CristalBase_" .. side, Vector3.new(0.4, 4.4, 4.4), Vector3.new(v.x, 0.2, v.z), PAL.gold, METAL, { rot = CYL })
+-		part("CristalNucleo_" .. side, Vector3.new(0.34, 3.8, 3.8), Vector3.new(v.x, 0.17, v.z), PAL.slot, Enum.Material.Basalt, { rot = CYL })
+-		local crystal = part("Cristal_" .. side, Vector3.new(1.6, 1.6, 1.6), Vector3.new(v.x, 2.6, v.z), color, NEON,
+-			{ transparency = 0.1, rot = CFrame.Angles(math.rad(45), math.rad(45), 0), glow = true })
+-		light(crystal, color, 12, 1.2)
+-		refs.vitals[side] = crystal
+-		local vhit = part("ZonaCristal_" .. side, Vector3.new(5, 5, 5), Vector3.new(v.x, 2.6, v.z), PAL.slot, nil,
++		local plinth = disc("CristalPlinto_" .. side, 3.6, 0.7, Vector3.new(v.x, 0.35, v.z), frameColor, METAL, { shadow = true })
++		disc("CristalAro_" .. side, 3.9, 0.06, Vector3.new(v.x, 0.03, v.z), color, NEON, { glow = true, transparency = 0.3 })
++		local shaft = part("Cristal_" .. side, Vector3.new(1.2, 1.5, 1.2), Vector3.new(v.x, 2.5, v.z), color, NEON,
++			{ transparency = 0.12, glow = true, shadow = true })
++		local shaft2 = part("CristalB_" .. side, Vector3.new(1.2, 1.5, 1.2), Vector3.new(v.x, 2.5, v.z), color, NEON,
++			{ transparency = 0.12, glow = true, rot = CFrame.Angles(0, math.pi / 4, 0) })
++		local tipLo = part("CristalPuntaB_" .. side, Vector3.new(0.95, 0.95, 0.95), Vector3.new(v.x, 1.55, v.z), color, NEON,
++			{ transparency = 0.12, glow = true, rot = TIP })
++		local tipHi = part("CristalPuntaA_" .. side, Vector3.new(0.95, 0.95, 0.95), Vector3.new(v.x, 3.45, v.z), color, NEON,
++			{ transparency = 0.12, glow = true, rot = TIP })
++		light(shaft, color, 12, 1)
++		refs.vitals[side] = shaft
++		refs.vitalGem[side] = { shaft, shaft2, tipLo, tipHi }
++		refs.plinth[side] = plinth -- aquí se ancla el medallón de vida
++		-- Zona táctil del avatar: ajustada al cristal, para no tapar lo que hay detrás
++		local vhit = part("ZonaCristal_" .. side, Vector3.new(4.2, 4, 4.2), Vector3.new(v.x, 2.2, v.z), color, nil,
+ 			{ transparency = 1, query = true })
+ 		vhit:SetAttribute("Kind", "avatar")
+ 		vhit:SetAttribute("Side", side)
+ 		refs.vitalHit[side] = vhit
+ 
++		-- Mazo = pedestal con cartas apiladas y aro de resplandor del color del bando
+ 		local d = Layout.deck(side)
+-		socket("Mazo_" .. side, d.x, d.z, color, sgn * 2.7)
+-		refs.decks[side] = part("MazoPila_" .. side, Vector3.new(4, 0.5, 5.6), Vector3.new(d.x, 0.4, d.z),
+-			Color3.fromRGB(46, 40, 62), METAL)
++		disc("MazoAro_" .. side, Layout.PEDESTAL_R * 2 + 0.4, 0.06, Vector3.new(d.x, 0.03, d.z), color, NEON,
++			{ glow = true, transparency = 0.3 })
++		disc("MazoPedestal_" .. side, Layout.PEDESTAL_R * 2, 0.5, Vector3.new(d.x, 0.25, d.z), frameColor, METAL, { shadow = true })
++		local stack = part("MazoPila_" .. side, Vector3.new(3.9, 0.3, 5.5), Vector3.new(d.x, 0.65, d.z), shade(skin.frame, 0.35), SMOOTH,
++			{ shadow = true })
++		refs.decks[side] = stack
+ 
++		-- Cementerio = pozo: borde alto, fondo hundido y remolino de neón
+ 		local g = Layout.graveyard(side)
+-		refs.graveyards[side] = socket("Cementerio_" .. side, g.x, g.z, color, -sgn * 2.7)
+-	end
+-
+-	-- ── Pilares con brasero en las cuatro esquinas ─────────────────────────
+-	for _, sx in ipairs({ -1, 1 }) do
+-		for _, sz in ipairs({ -1, 1 }) do
+-			local px, pz = sx * (hx + 1.2), sz * (hz + 1.2)
+-			local color = sz == 1 and PAL.Self or PAL.Enemy
+-			part("Pilar", Vector3.new(1.8, 6.5, 1.8), Vector3.new(px, 1.75, pz), PAL.tier2, Enum.Material.Basalt)
+-			part("PilarCapitel", Vector3.new(2.4, 0.4, 2.4), Vector3.new(px, 5.2, pz), PAL.gold, METAL)
+-			local flame = part("PilarLlama", Vector3.new(1, 1, 1), Vector3.new(px, 6, pz), color, NEON,
+-				{ shape = Enum.PartType.Ball, glow = true })
+-			light(flame, color, 14, 1)
++		disc("PozoBorde_" .. side, Layout.PEDESTAL_R * 2, 0.4, Vector3.new(g.x, 0.2, g.z), frameColor, METAL, { shadow = true })
++		local pit = disc("PozoFondo_" .. side, Layout.PEDESTAL_R * 2 - 1, 0.3, Vector3.new(g.x, 0.15, g.z), Color3.fromRGB(24, 22, 30), SMOOTH)
++		disc("PozoRemolino_" .. side, 2.4, 0.32, Vector3.new(g.x, 0.16, g.z), color, NEON, { glow = true, transparency = 0.35 })
++		refs.graveyards[side] = pit
++
++		-- Barrera baja y translúcida detrás de la Banca (aloja las grietas del Parche 3) + surco hasta el cristal
++		local bz = Layout.barrierZ(side)
++		local halfW = Layout.BARRIER_HALF_W
++		local panel = part("Barrera_" .. side, Vector3.new(halfW * 2, 1, 0.5), Vector3.new(0, 0.5, bz), rgb(skin[side == "Self" and "allyDark" or "rivalDark"]), SMOOTH,
++			{ transparency = 0.45 })
++		-- Cara +Z (la que ve la cámara): franjas verticales del color del bando
++		local bg = surface(panel, Enum.NormalId.Back, 1000, 40, 0)
++		for i = 0, 23 do
++			frame(bg, { Position = UDim2.fromOffset(i * 41.6 + 14, 0), Size = UDim2.fromOffset(8, 40), BackgroundColor3 = color,
++				BackgroundTransparency = 0.25 })
++		end
++		part("BarreraRiel_" .. side, Vector3.new(halfW * 2 + 0.6, 0.14, 0.9), Vector3.new(0, 1.07, bz), frameColor, METAL, { shadow = true })
++		refs.barriers[side] = panel
++
++		local gz = bz + sgn * 0.55 -- el surco corre justo detrás del panel
++		local x0, x1 = v.x, halfW
++		local h = part("Surco_" .. side .. "_H", Vector3.new(x1 - x0, 0.06, 0.14), Vector3.new((x0 + x1) / 2, 0.03, gz), color, NEON,
++			{ glow = true, transparency = 0.3 })
++		local z0, z1 = gz, v.z
++		local vtc = part("Surco_" .. side .. "_V", Vector3.new(0.14, 0.06, math.abs(z1 - z0)), Vector3.new(v.x, 0.03, (z0 + z1) / 2), color, NEON,
++			{ glow = true, transparency = 0.3 })
++		refs.grooves[side] = { h, vtc }
++	end
++
++	-- La pila de mazo crece con las cartas que quedan (40 cartas ≈ 1.5 studs)
++	function refs.setDeck(side, count)
++		local st = refs.decks[side]
++		local d = Layout.deck(side)
++		local h = math.clamp(0.1 + (count or 0) * 0.035, 0.1, 1.6)
++		st.Size = Vector3.new(3.9, h, 5.5)
++		st.CFrame = CFrame.new(origin + Vector3.new(d.x, 0.5 + h / 2, d.z))
++	end
++
++	-- ── Torres en las cuatro esquinas (una sola luz cada una) ──────────────
++	local stoneColor = rgb(skin.stone)
++	local glowColor = rgb(skin.glow)
++	for _, c in ipairs(Layout.corners()) do
++		local tag = (c.x < 0 and "W" or "E") .. (c.z < 0 and "N" or "S")
++		-- Fuste poligonal: tres bloques girados 0°, 30° y 60° (silueta de 12 lados)
++		for k = 0, 2 do
++			part("Torre_" .. tag .. k, Vector3.new(2, 3.2, 2), Vector3.new(c.x, 1.6, c.z), stoneColor, nil,
++				{ rot = CFrame.Angles(0, math.rad(k * 30), 0), shadow = k == 0 })
++		end
++		disc("TorreCapitel_" .. tag, 2.8, 0.3, Vector3.new(c.x, 3.35, c.z), frameColor, METAL)
++		local flame = part("TorreLlama_" .. tag, Vector3.new(0.9, 0.9, 0.9), Vector3.new(c.x, 4.05, c.z), glowColor, NEON,
++			{ shape = Enum.PartType.Ball, glow = true })
++		light(flame, glowColor, 14, 0.8)
++	end
++
++	-- ── Luciérnagas (solo calidad alta): puntos de luz que suben y se desvanecen fuera de la mesa ──
++	if high then
++		for i = 1, 8 do
++			local a = i * 0.785 + 0.3
++			local bx = (hx + 4 + (i % 3) * 1.6) * math.cos(a)
++			local bz = (hz + 3 + (i % 2) * 2.2) * math.sin(a)
++			local f = part("Luciernaga" .. i, Vector3.new(0.35, 0.35, 0.35), Vector3.new(bx, 1, bz), glowColor, NEON,
++				{ shape = Enum.PartType.Ball, transparency = 1 })
++			anim.fireflies[#anim.fireflies + 1] = { part = f, x = bx, z = bz, phase = i * 0.37 }
+ 		end
+ 	end
+ 
+-	return { folder = folder, glow = glow, refs = refs }
++	return { folder = folder, glow = glow, glowBase = glowBase, refs = refs, anim = anim, palette = palette, skin = skin }
+ end
+ 
+--- Atmósfera oscura de templo. Solo afecta a este cliente.
+--- Devuelve una función que restaura todo lo que cambió.
+-function BoardBuilder.applyLighting(quality)
++-- Iluminación clara y local (solo afecta a este cliente): ambiente alto, sol alto (no rasante),
++-- bloom suave y atmósfera ligera. Devuelve una función que restaura todo lo que cambió.
++function BoardBuilder.applyLighting(quality, skinName)
+ 	local high = quality ~= "Low"
++	local L = Skins.get(skinName).light
+ 	local saved = {
+ 		Ambient = Lighting.Ambient,
+ 		OutdoorAmbient = Lighting.OutdoorAmbient,
+@@ -211,21 +370,21 @@ function BoardBuilder.applyLighting(quality)
+ 		GlobalShadows = Lighting.GlobalShadows,
+ 		ExposureCompensation = Lighting.ExposureCompensation,
+ 	}
+-	Lighting.Ambient = Color3.fromRGB(52, 48, 70)
+-	Lighting.OutdoorAmbient = Color3.fromRGB(60, 56, 84)
+-	Lighting.Brightness = 2
+-	Lighting.ClockTime = 16.5 -- sol bajo: luz rasante que marca el relieve de la piedra
+-	Lighting.ColorShift_Top = Color3.fromRGB(255, 205, 150)
++	Lighting.Ambient = Skins.rgb(L.ambient)
++	Lighting.OutdoorAmbient = Skins.rgb(L.outdoor)
++	Lighting.Brightness = L.brightness
++	Lighting.ClockTime = L.clockTime -- sol alto: sombras cortas, sin luz rasante
++	Lighting.ColorShift_Top = Skins.rgb(L.shiftTop)
+ 	Lighting.GlobalShadows = high
+-	Lighting.ExposureCompensation = 0
++	Lighting.ExposureCompensation = L.exposure
+ 
+ 	local extras = {}
+ 	local atmosphere = Instance.new("Atmosphere")
+ 	atmosphere.Name = "AevumAtmosphere"
+-	atmosphere.Density = 0.25
++	atmosphere.Density = L.density
+ 	atmosphere.Offset = 0
+-	atmosphere.Color = Color3.fromRGB(34, 28, 56)
+-	atmosphere.Decay = Color3.fromRGB(14, 12, 28)
++	atmosphere.Color = Skins.rgb(L.atmosphere)
++	atmosphere.Decay = Skins.rgb(L.decay)
+ 	atmosphere.Glare = 0
+ 	atmosphere.Haze = 0
+ 	atmosphere.Parent = Lighting
+@@ -234,9 +393,9 @@ function BoardBuilder.applyLighting(quality)
+ 	if high then
+ 		local bloom = Instance.new("BloomEffect")
+ 		bloom.Name = "AevumBloom"
+-		bloom.Intensity = 0.5
+-		bloom.Size = 24
+-		bloom.Threshold = 1
++		bloom.Intensity = L.bloom
++		bloom.Size = 20
++		bloom.Threshold = 1.1
+ 		bloom.Parent = Lighting
+ 		extras[#extras + 1] = bloom
+ 	end
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau b/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau
+index 1cdd6fd..3864896 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/CameraRig.luau
+@@ -8,7 +8,7 @@ local Layout = require(script.Parent.Layout)
+ local CameraRig = {}
+ 
+ CameraRig.FOV = 45 -- FOV vertical (grados)
+-CameraRig.PITCH = 58 -- inclinación bajo el horizonte (grados)
++CameraRig.PITCH = 46 -- inclinación bajo el horizonte (grados). Más baja que antes (58): las cartas se ven más grandes
+ 
+ -- Toma el control de la cámara apuntando a `center` (Vector3).
+ -- Devuelve una función `stop` que la devuelve a como estaba.
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau b/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau
+index 67f4b6e..e55fa01 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/CardView.luau
+@@ -41,6 +41,18 @@ local COLORS = {
+ 	Enemy = Color3.fromRGB(255, 90, 170),
+ }
+ 
++-- Giro que deja la normal de Front hacia +Y y el "arriba" del lienzo hacia -Z (ver cabecera).
++-- Lo usa también BoardBuilder para las baldosas y el disco: una sola constante (FACE_YAW) corrige todo.
++function CardView.faceRotation()
++	return CFrame.Angles(0, CardView.FACE_YAW, 0) * CFrame.Angles(math.pi / 2, 0, 0)
++end
++
++-- Colores de bando de la skin: rojo/coral = rival, azul = jugador (reverso de las cartas)
++function CardView.setSkin(skin)
++	COLORS.Self = Color3.fromRGB(skin.ally[1], skin.ally[2], skin.ally[3])
++	COLORS.Enemy = Color3.fromRGB(skin.rival[1], skin.rival[2], skin.rival[3])
++end
++
+ local function mk(class, props, parent)
+ 	local o = Instance.new(class)
+ 	for k, v in pairs(props) do o[k] = v end
+@@ -72,8 +84,7 @@ local function buildModel(quality)
+ 	local model = Instance.new("Model")
+ 	model.Name = "Carta"
+ 
+-	-- Giro que deja la normal de Front hacia +Y y el "arriba" del lienzo hacia -Z (ver cabecera)
+-	local face = CFrame.Angles(0, CardView.FACE_YAW, 0) * CFrame.Angles(math.pi / 2, 0, 0)
++	local face = CardView.faceRotation()
+ 
+ 	local body = cardPart("Cuerpo", Vector3.new(W, 0.22, D), CFrame.new(0, 0, 0), GOLD, Enum.Material.Metal, model)
+ 	-- Pieza fina (ancho, alto, grosor): al girarla, su "alto" queda a lo largo de Z de la carta
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+index bd64bd5..e8820f5 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+@@ -12,16 +12,18 @@ local Layout = {}
+ Layout.CARD = { w = 4, d = 5.6, h = 0.12 }
+ 
+ Layout.SLOT_PITCH = 5 -- distancia entre centros de casilla en X
+-Layout.ROW_COMBAT = 5.6 -- |z| de la fila de Combate
+-Layout.ROW_BENCH = 12.8 -- |z| de la fila de Banca
+-Layout.SIDE_X = 17.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
++Layout.ROW_COMBAT = 5.2 -- |z| de la fila de Combate
++Layout.ROW_BENCH = 12.4 -- |z| de la fila de Banca (7.2 entre filas: el cristal cabe en medio)
++Layout.SIDE_X = 16.5 -- |x| de las columnas laterales (cristal, mazo, cementerio)
++Layout.PEDESTAL_R = 2.2 -- radio de pedestales y pozos de las columnas laterales
++Layout.DISC_R = 2.0 -- radio del disco de turno (la franja libre entre filas de Combate mide 4.8)
++Layout.BARRIER_GAP = 1.3 -- de la Banca a la barrera (desde el borde de la carta)
+ 
+ -- Alturas (Y = 0 es la superficie de la mesa)
+ Layout.CARD_Y = 0.6 -- centro de una carta que flota sobre su casilla
+ Layout.SEL_LIFT = 0.9 -- cuánto se eleva una carta seleccionada
+ Layout.HOVER_Y = 2.8 -- altura a la que se alza una carta antes de volar a otra zona
+ Layout.PILE_Y = 0.95 -- altura de entrada/salida en mazo y cementerio
+-Layout.ORB_Y = 4 -- altura del orbe central
+ 
+ local function sign(side)
+ 	return side == "Self" and 1 or -1
+@@ -78,17 +80,43 @@ function Layout.freeSlots(list, n, count)
+ 	return out
+ end
+ 
+--- Orbe central. attacker: "Self" | "Enemy" | nil (neutro). Se desplaza hacia quien ataca.
+-function Layout.orb(attacker)
+-	local z = 0
+-	if attacker then z = sign(attacker) * 1.2 end
+-	return { x = 0, z = z }
++-- Disco de turno: fijo en el centro (la mitad de quien ataca brilla; no se desplaza)
++function Layout.disc()
++	return { x = 0, z = 0 }
++end
++
++-- Barrera: panel bajo detrás de la Banca de cada bando (alto ~1 stud). Centro en Z y semiancho en X.
++function Layout.barrierZ(side)
++	return sign(side) * (Layout.ROW_BENCH + Layout.CARD.d / 2 + Layout.BARRIER_GAP)
++end
++Layout.BARRIER_HALF_W = 2.5 * Layout.SLOT_PITCH -- cubre las 5 casillas
++
++-- Camino de los pulsos de daño: del punto de impacto en la barrera, por el surco de su base hasta la
++-- columna lateral y por ella hasta el cristal. Devuelve puntos { x, z } (Parche 3 anima a lo largo).
++function Layout.pulsePath(side, impactX)
++	local bz = Layout.barrierZ(side) + sign(side) * 0.55 -- el surco corre justo detrás del panel
++	local v = Layout.vital(side)
++	local x = math.clamp(impactX or 0, -Layout.BARRIER_HALF_W, Layout.BARRIER_HALF_W)
++	return {
++		{ x = x, z = bz },
++		{ x = v.x, z = bz },
++		{ x = v.x, z = v.z },
++	}
++end
++
++-- Esquinas de la mesa (para las torres)
++function Layout.corners()
++	local half = Layout.halfExtents()
++	return {
++		{ x = -half.x, z = -half.z }, { x = half.x, z = -half.z },
++		{ x = -half.x, z = half.z }, { x = half.x, z = half.z },
++	}
+ end
+ 
+ -- Semi-extensiones de la mesa jugable (sin marco)
+ function Layout.halfExtents()
+-	local halfX = Layout.SIDE_X + 3
+-	local halfZ = Layout.ROW_BENCH + Layout.CARD.d / 2 + 2.5
++	local halfX = Layout.SIDE_X + 2.6
++	local halfZ = Layout.ROW_BENCH + Layout.CARD.d / 2 + 2.4
+ 	return { x = halfX, z = halfZ }
+ end
+ 
+@@ -124,4 +152,12 @@ function Layout.cameraFit(aspect, vfovDeg, pitchDeg, region, margin)
+ 	}
+ end
+ 
++-- Ancho aparente (píxeles) de una carta en el centro de la mesa con el encuadre de cameraFit.
++-- viewportH = alto de pantalla en píxeles. Sirve para vigilar la legibilidad (objetivo: >= 80 px a 1080p).
++function Layout.cardScreenWidth(aspect, vfovDeg, pitchDeg, viewportH, region, margin)
++	local fit = Layout.cameraFit(aspect, vfovDeg, pitchDeg, region, margin)
++	local tanV = math.tan(math.rad(vfovDeg) / 2)
++	return Layout.CARD.w * viewportH / (2 * tanV * fit.distance)
++end
++
+ return Layout
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Skins.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Skins.luau
+new file mode 100644
+index 0000000..7f2925c
+--- /dev/null
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Skins.luau
+@@ -0,0 +1,94 @@
++--!nonstrict
++-- AEVUM · Skins de arena (v1.3.0)
++-- Paletas intercambiables del tablero 3D. Son datos puros (colores como { r, g, b } 0-255), así se
++-- pueden probar con `luau` sin Roblox. BoardBuilder las convierte con Skins.rgb / Skins.shade.
++-- Se elige con Config.Client.Skin. Base recomendada: Ruinas (luminosa; la queja principal fue lo oscuro).
++-- Valores tomados de docs/referencia/aevum_tablero_v2.html.
++--
++-- Campos:
++--   rival / rivalDark · ally / allyDark   colores de bando (rojo/coral = rival, azul = jugador)
++--   floor    superficie lisa de la mesa      tile / tileDark   baldosa y su sombra
++--   edge     grabado de las baldosas          glow   resplandor (torres, orbes, luciérnagas)
++--   frame    marco, plintos y metal           river  río de luz del divisor central
++--   env      suelo del entorno                stone  torres y escalones
++--   material material de mesa y torres (nombre de Enum.Material)
++--   light    iluminación local (ambiente, sol, atmósfera, bloom)
++
++local Skins = {}
++
++Skins.Default = "Ruinas"
++Skins.Order = { "Ruinas", "Circuito", "Templo" }
++
++Skins.Data = {
++	Ruinas = {
++		rival = { 232, 128, 90 }, rivalDark = { 154, 74, 48 },
++		ally = { 74, 159, 216 }, allyDark = { 42, 95, 154 },
++		floor = { 159, 174, 122 }, tile = { 233, 224, 184 }, tileDark = { 196, 184, 134 },
++		edge = { 138, 122, 74 }, glow = { 255, 233, 160 }, frame = { 184, 148, 74 }, river = { 127, 209, 232 },
++		env = { 79, 127, 74 }, stone = { 190, 182, 140 }, material = "Sandstone",
++		light = {
++			ambient = { 150, 152, 138 }, outdoor = { 172, 176, 160 }, brightness = 2.4, clockTime = 13, exposure = 0.1,
++			shiftTop = { 255, 244, 214 }, atmosphere = { 205, 222, 196 }, decay = { 150, 170, 130 }, density = 0.18,
++			bloom = 0.25,
++		},
++	},
++	Circuito = {
++		rival = { 255, 107, 74 }, rivalDark = { 138, 42, 26 },
++		ally = { 74, 208, 255 }, allyDark = { 18, 106, 154 },
++		floor = { 20, 52, 61 }, tile = { 31, 77, 89 }, tileDark = { 18, 51, 60 },
++		edge = { 47, 208, 224 }, glow = { 127, 243, 255 }, frame = { 42, 124, 136 }, river = { 255, 164, 58 },
++		env = { 8, 40, 48 }, stone = { 36, 84, 96 }, material = "Slate",
++		light = {
++			ambient = { 80, 110, 118 }, outdoor = { 96, 128, 136 }, brightness = 2, clockTime = 13, exposure = 0,
++			shiftTop = { 200, 240, 255 }, atmosphere = { 40, 90, 100 }, decay = { 14, 40, 50 }, density = 0.22,
++			bloom = 0.45,
++		},
++	},
++	Templo = {
++		rival = { 255, 95, 122 }, rivalDark = { 138, 31, 58 },
++		ally = { 106, 168, 255 }, allyDark = { 42, 79, 160 },
++		floor = { 61, 51, 88 }, tile = { 82, 70, 116 }, tileDark = { 50, 42, 78 },
++		edge = { 216, 174, 92 }, glow = { 255, 217, 138 }, frame = { 216, 174, 92 }, river = { 182, 107, 255 },
++		env = { 30, 22, 54 }, stone = { 70, 60, 100 }, material = "Slate",
++		light = {
++			ambient = { 96, 86, 126 }, outdoor = { 112, 102, 144 }, brightness = 2, clockTime = 14, exposure = 0,
++			shiftTop = { 255, 214, 160 }, atmosphere = { 70, 56, 110 }, decay = { 30, 24, 60 }, density = 0.25,
++			bloom = 0.4,
++		},
++	},
++}
++
++-- Campos de color que toda skin debe tener (los comprueba tests/Skins.spec.luau)
++Skins.COLOR_KEYS = { "rival", "rivalDark", "ally", "allyDark", "floor", "tile", "tileDark", "edge", "glow", "frame",
++	"river", "env", "stone" }
++
++-- Skin por nombre; si no existe, la predeterminada
++function Skins.get(name)
++	return Skins.Data[name] or Skins.Data[Skins.Default]
++end
++
++-- { r, g, b } -> Color3
++function Skins.rgb(c)
++	return Color3.fromRGB(c[1], c[2], c[3])
++end
++
++-- Mismo color con otro brillo (k = 1 igual, 0.45 = al 45 %). k > 1 aclara sin pasar de 255.
++-- shadeRgb es pura ({ r, g, b } -> { r, g, b }); shade devuelve Color3.
++function Skins.shadeRgb(c, k)
++	return {
++		math.min(255, math.floor(c[1] * k + 0.5)),
++		math.min(255, math.floor(c[2] * k + 0.5)),
++		math.min(255, math.floor(c[3] * k + 0.5)),
++	}
++end
++
++function Skins.shade(c, k)
++	return Skins.rgb(Skins.shadeRgb(c, k))
++end
++
++-- Color de bando: "Self" = azul (tú) · "Enemy" = rojo/coral (rival)
++function Skins.side(skin, side)
++	return side == "Self" and skin.ally or skin.rival
++end
++
++return Skins
+diff --git a/tests/Layout.spec.luau b/tests/Layout.spec.luau
+index 2b286e5..286eeb6 100644
+--- a/tests/Layout.spec.luau
++++ b/tests/Layout.spec.luau
+@@ -25,7 +25,7 @@ end
+ -- Vitales, mazos y cementerios
+ expect(Layout.vital("Self").z > 0 and Layout.vital("Enemy").z < 0, "cada cristal en su lado")
+ expect(Layout.deck("Self").x == Layout.graveyard("Self").x, "mazo y cementerio comparten columna")
+-expect(Layout.orb("Self").z > 0 and Layout.orb("Enemy").z < 0 and Layout.orb(nil).z == 0, "el orbe se acerca a quien ataca")
++expect(Layout.disc().x == 0 and Layout.disc().z == 0, "el disco de turno es fijo y está en el centro")
+ 
+ -- Cámara: más estrecha la pantalla => más lejos; siempre distancia positiva
+ local wide = Layout.cameraFit(16 / 9, 45, 58)
+@@ -36,5 +36,46 @@ expect(narrow.distance >= wide.distance, "pantalla menos ancha exige más distan
+ expect(portrait.distance > narrow.distance, "en vertical la cámara se aleja más")
+ expect(wide.shift > 0, "la región libre queda sobre el centro: la mirada baja")
+ 
+-print("Layout.spec OK · distancia 16:9 =", string.format("%.1f", wide.distance), "· 4:3 =", string.format("%.1f", narrow.distance),
++-- Disco de turno: cabe en la franja libre entre las filas de Combate
++local strip = 2 * (Layout.ROW_COMBAT - Layout.CARD.d / 2)
++expect(2 * Layout.DISC_R <= strip, "el disco cabe entre las dos filas de Combate")
++
++-- Pedestales de mazo y cementerio: dentro de la mesa y sin pisar la última casilla
++local half2 = Layout.halfExtents()
++expect(Layout.SIDE_X + Layout.PEDESTAL_R <= half2.x, "los pedestales caben en la mesa")
++expect(Layout.SIDE_X - Layout.PEDESTAL_R > Layout.slotX(5, 5) + Layout.CARD.w / 2, "los pedestales no pisan la Banca/Combate")
++
++-- Barreras: detrás de la Banca, dentro del marco, cubren las 5 casillas y no se pisan con la Banca
++for _, side in ipairs({ "Self", "Enemy" }) do
++	local bz = math.abs(Layout.barrierZ(side))
++	expect(bz > Layout.ROW_BENCH + Layout.CARD.d / 2, "la barrera queda detrás de la Banca")
++	expect(bz + 0.55 + 0.1 < half2.z, "barrera y surco caben dentro del marco")
++	expect(Layout.BARRIER_HALF_W >= Layout.slotX(5, 5) + Layout.CARD.w / 2, "la barrera cubre las 5 casillas")
++end
++expect(Layout.barrierZ("Self") > 0 and Layout.barrierZ("Enemy") < 0, "cada barrera en su lado")
++
++-- Camino de pulsos: nace en la barrera (clamp al panel), recorre su surco y termina en el cristal
++for _, side in ipairs({ "Self", "Enemy" }) do
++	local path = Layout.pulsePath(side, 999)
++	local v = Layout.vital(side)
++	expect(#path == 3, "el camino tiene tres puntos: impacto, esquina, cristal")
++	expect(near(path[1].x, Layout.BARRIER_HALF_W), "el impacto se limita al ancho de la barrera")
++	expect(near(path[1].z, path[2].z) and near(path[2].x, path[3].x), "tramos rectos: horizontal por la barrera, vertical por la columna")
++	expect(near(path[3].x, v.x) and near(path[3].z, v.z), "el camino acaba en el cristal")
++	expect(math.abs(path[1].z) > math.abs(Layout.barrierZ(side)) and math.abs(path[1].z) < half2.z, "el surco va tras la barrera y dentro del marco")
++end
++
++-- Las torres de las esquinas quedan en las 4 esquinas de la mesa
++local corners = Layout.corners()
++expect(#corners == 4, "cuatro torres")
++
++-- Reencuadre: con el pitch nuevo (46°) la mesa cabe más cerca que con el antiguo (58°) y la carta se lee mejor
++local near46 = Layout.cameraFit(16 / 9, 45, 46)
++expect(near46.distance < Layout.cameraFit(16 / 9, 45, 58).distance, "pitch 46° acerca la cámara")
++local px = Layout.cardScreenWidth(16 / 9, 45, 46, 1080)
++expect(px >= 80, "una carta debe medir >= 80 px de ancho a 1080p (mide " .. string.format("%.1f", px) .. ")")
++-- La mesa no puede quedar recortada en vertical (móvil): la distancia debe seguir creciendo
++expect(Layout.cameraFit(9 / 16, 45, 46).distance > Layout.cameraFit(4 / 3, 45, 46).distance, "en vertical la cámara se aleja más")
++
++print("Layout.spec OK · distancia 16:9 =", string.format("%.1f", wide.distance), "(pitch 46°:", string.format("%.1f", near46.distance) .. ", carta " .. string.format("%.0f", px) .. " px a 1080p)", "· 4:3 =", string.format("%.1f", narrow.distance),
+ 	"· 9:16 =", string.format("%.1f", portrait.distance))
+diff --git a/tests/Skins.spec.luau b/tests/Skins.spec.luau
+new file mode 100644
+index 0000000..edf752b
+--- /dev/null
++++ b/tests/Skins.spec.luau
+@@ -0,0 +1,45 @@
++-- Prueba de las skins de arena (datos puros).
++local Skins = require("../src/StarterPlayerScripts/AEVUM/UI3D/Skins")
++
++local function expect(c, m) if not c then error(m, 2) end end
++local function isRgb(c)
++	if type(c) ~= "table" or #c ~= 3 then return false end
++	for i = 1, 3 do
++		if type(c[i]) ~= "number" or c[i] < 0 or c[i] > 255 then return false end
++	end
++	return true
++end
++local function lum(c) return 0.2126 * c[1] + 0.7152 * c[2] + 0.0722 * c[3] end
++
++expect(Skins.Data[Skins.Default] ~= nil, "la skin predeterminada existe")
++expect(Skins.Default == "Ruinas", "Ruinas es la skin con la que se empieza")
++expect(#Skins.Order == 3, "tres skins: Ruinas, Circuito, Templo")
++
++for _, name in ipairs(Skins.Order) do
++	local s = Skins.Data[name]
++	expect(s ~= nil, name .. " definida")
++	for _, k in ipairs(Skins.COLOR_KEYS) do
++		expect(isRgb(s[k]), name .. "." .. k .. " debe ser { r, g, b } entre 0 y 255")
++	end
++	expect(type(s.material) == "string", name .. ".material")
++	local l = s.light
++	expect(l and isRgb(l.ambient) and isRgb(l.outdoor) and isRgb(l.shiftTop) and isRgb(l.atmosphere) and isRgb(l.decay), name .. ".light: colores")
++	expect(type(l.brightness) == "number" and l.clockTime >= 10 and l.clockTime <= 15, name .. ": sol alto (no rasante)")
++	-- Bandos distinguibles: el rival tira a rojo y el jugador a azul
++	expect(s.rival[1] > s.rival[3], name .. ": el rival es rojo/coral")
++	expect(s.ally[3] > s.ally[1], name .. ": el jugador es azul")
++	-- Las baldosas deben contrastar con el grabado (si no, no se ve el dibujo)
++	expect(math.abs(lum(s.tile) - lum(s.edge)) > 40, name .. ": el grabado se distingue de la baldosa")
++end
++
++-- Ruinas es la luminosa: más clara que las otras dos (la queja principal fue lo oscuro)
++expect(lum(Skins.Data.Ruinas.tile) > lum(Skins.Data.Circuito.tile) and lum(Skins.Data.Ruinas.tile) > lum(Skins.Data.Templo.tile), "Ruinas es la más clara")
++expect(Skins.Data.Ruinas.light.brightness >= 2.2, "Ruinas ilumina fuerte")
++
++-- Utilidades
++expect(Skins.get("nada") == Skins.Data.Ruinas, "una skin desconocida cae a la predeterminada")
++expect(Skins.side(Skins.Data.Ruinas, "Self") == Skins.Data.Ruinas.ally and Skins.side(Skins.Data.Ruinas, "Enemy") == Skins.Data.Ruinas.rival, "Self = azul, Enemy = rojo")
++local c = Skins.shadeRgb({ 200, 100, 50 }, 0.45)
++expect(c[1] == 90 and c[2] == 45 and c[3] == 23, "shade al 45 %")
++expect(Skins.shadeRgb({ 200, 100, 50 }, 2)[1] == 255, "shade no pasa de 255")
++print("Skins.spec OK")
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+index 2698262..9f636d5 100644
+--- a/tests/smoke/smoke.luau
++++ b/tests/smoke/smoke.luau
+@@ -56,6 +56,55 @@ do
+ 	expect(CardDetail.draw(ctx, parent, { view = view }, 50) == nil, "detalle: sin carta elegida no dibuja nada")
+ end
+ 
++-- 0c) arena: presupuesto de partes, redondos con Shape = Cylinder, zonas táctiles justas, calidad baja más ligera
++do
++	local BoardBuilder = require("./BoardBuilder")
++	local function census(quality)
++		local sc = BoardBuilder.build(S.V3(0, 0, 0), quality, "Ruinas")
++		local c = { parts = 0, lights = 0, query = {}, sc = sc }
++		for _, d in ipairs(sc.folder:GetDescendants()) do
++			if d.ClassName == "Part" then
++				c.parts += 1
++				if d.CanQuery then c.query[#c.query + 1] = d end
++			elseif d.ClassName == "PointLight" then
++				c.lights += 1
++			end
++		end
++		return c
++	end
++	local hi, lo = census("High"), census("Low")
++	print("partes de la arena:", hi.parts, "(alta) /", lo.parts, "(baja) · luces:", hi.lights, "/", lo.lights)
++	expect(hi.parts <= 130, "la arena debe tener <= 130 partes (hoy " .. hi.parts .. ")")
++	expect(lo.parts < hi.parts and lo.lights == 0 and #lo.sc.anim.fireflies == 0 and lo.sc.anim.river == nil and #lo.sc.glow == 0,
++		"calidad baja: sin luces, luciérnagas, río animado ni brillos")
++	expect(hi.lights <= 6, "como mucho una luz por torre y por cristal")
++	expect(#hi.sc.refs.discs == 19, "los redondos se crean con disc()")
++	for _, p in ipairs(hi.sc.refs.discs) do
++		expect(p.Shape == S.Enum.PartType.Cylinder, "toda pieza redonda debe tener Shape = Cylinder: " .. p.Name)
++	end
++	-- Zonas táctiles: 20 casillas + 2 cristales, finas y sin solaparse con las vecinas
++	expect(#hi.query == 22, "solo 22 piezas consultables por raycast (20 casillas + 2 cristales), hay " .. #hi.query)
++	for _, p in ipairs(hi.query) do
++		if p:GetAttribute("Kind") == "slot" then
++			expect(p.Size.X < 5 and p.Size.Y <= 0.2, "la zona de casilla es fina y no pisa a la vecina: " .. p.Name)
++		else
++			expect(p:GetAttribute("Kind") == "avatar" and p.Size.Y <= 4, "la zona del cristal es ajustada")
++		end
++	end
++	for _, d in ipairs(hi.sc.folder:GetDescendants()) do
++		local n = d.Name or ""
++		expect(not (n:find("Canal") or n:find("Orbe") or n:find("Nodo")), "sin restos de neón del diseño anterior: " .. n)
++	end
++	-- Mazo: la pila crece con las cartas que quedan
++	hi.sc.refs.setDeck("Self", 30)
++	expect(hi.sc.refs.decks.Self.Size.Y > 1, "la pila del mazo crece con las cartas")
++	expect(hi.sc.refs.markers["Self:Bench:3"] ~= nil and hi.sc.refs.hit["Enemy:Combat:1"] ~= nil, "marcadores y zonas por casilla")
++	-- Skins: las tres construyen
++	for _, name in ipairs({ "Ruinas", "Circuito", "Templo" }) do
++		expect(BoardBuilder.build(S.V3(0, 0, 0), "High", name).refs.disc ~= nil, "la skin " .. name .. " construye la arena")
++	end
++end
++
+ local handRects = {}
+ local render, show, hide, api = Board3D.create({
+ 	cards = Cards, theme = { sel = 1, tgt = 2, atk = 3 },
+@@ -95,6 +144,20 @@ local function hnd(uid, cardId) return { uid = uid, cardId = cardId, cost = Card
+ render(state(mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })))
+ expect(api.debug().live == 0 and api.debug().flyers == 0, "primer estado vacío")
+ 
++-- 1b) disco de turno: brilla la mitad de quien ataca (view.attackerIdx); sin atacante al terminar
++expect(api.discAttacker() == "Self", "disco: ataco yo (attackerIdx == you)")
++do
++	local v = mkView({})
++	v.attackerIdx = 2
++	render(state(v))
++	expect(api.discAttacker() == "Enemy", "disco: ataca el rival")
++	v.over = true
++	render(state(v))
++	expect(api.discAttacker() == nil, "disco: partida terminada, sin atacante")
++	local v2 = mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })
++	render(state(v2)) -- vuelve al estado del escenario 1 (mismos uid): sin vuelos
++end
++
+ -- 2) juego uid 1 a la Banca (casilla 2): sale de la mano
+ local bench = emptyZone() bench[2] = mineInst(1, "APRENDIZ", { prepared = false })
+ render(state(mkView({ hand = { hnd(2, "CENTINELA"), hnd(3, "GOLPE") }, bench = bench })))
+-- 
+2.43.0
+
