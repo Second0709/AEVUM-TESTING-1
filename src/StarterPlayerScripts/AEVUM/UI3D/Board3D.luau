@@ -569,6 +569,7 @@ function Board3D.create(ctx)
 			local color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or scene.palette[side]
 			for _, p in ipairs(scene.refs.vitalGem[side]) do p.Color = color end
 			scene.refs.setDeck(side, pl.deck)
+			scene.refs.setGrave(side, #pl.graveyard)
 		end
 
 		-- Disco de turno: brilla la mitad de quien tiene el derecho de ataque (view.attackerIdx)

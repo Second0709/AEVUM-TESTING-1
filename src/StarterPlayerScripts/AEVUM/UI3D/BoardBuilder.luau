@@ -52,7 +52,7 @@ function BoardBuilder.build(origin, quality, skinName)
 	local glow, glowBase = {}, {}
 	local anim = { river = nil, fireflies = {} }
 	local refs = {
-		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, graveyards = {},
+		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, deckTops = {}, graveyards = {},
 		barriers = {}, grooves = {}, discs = {}, disc = nil,
 	}
 	local palette = BoardBuilder.palette(skinName)
@@ -291,21 +291,52 @@ function BoardBuilder.build(origin, quality, skinName)
 		vhit:SetAttribute("Side", side)
 		refs.vitalHit[side] = vhit
 
-		-- Mazo = pedestal con cartas apiladas y aro de resplandor del color del bando
-		local d = Layout.deck(side)
-		disc("MazoAro_" .. side, Layout.PEDESTAL_R * 2 + 0.4, 0.06, Vector3.new(d.x, 0.03, d.z), color, NEON,
-			{ glow = true, transparency = 0.3 })
-		disc("MazoPedestal_" .. side, Layout.PEDESTAL_R * 2, 0.5, Vector3.new(d.x, 0.25, d.z), frameColor, METAL, { shadow = true })
-		local stack = part("MazoPila_" .. side, Vector3.new(3.9, 0.3, 5.5), Vector3.new(d.x, 0.65, d.z), shade(skin.frame, 0.35), SMOOTH,
-			{ shadow = true })
-		refs.decks[side] = stack
+		-- Muesca grabada (misma placa que las casillas): marco redondeado, el cementerio con doble marco,
+		-- y la línea del color del bando en el borde que mira a su dueño.
+		local function notch(name, pos, double)
+			local plate = part(name, Vector3.new(4.5, 6.1, 0.1), Vector3.new(pos.x, 0.05, pos.z), tileColor, SMOOTH, { rot = face })
+			local ng = surface(plate, Enum.NormalId.Front, 450, 610, 0.5)
+			local function outline(inset, thickness)
+				local f = frame(ng, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+					Size = UDim2.fromOffset(450 - inset * 2, 610 - inset * 2), BackgroundTransparency = 1 })
+				local c = Instance.new("UICorner")
+				c.CornerRadius = UDim.new(0, 28)
+				c.Parent = f
+				local st = Instance.new("UIStroke")
+				st.Color = edgeColor
+				st.Thickness = thickness
+				st.Parent = f
+			end
+			outline(40, 8)
+			if double then outline(90, 3) end
+			bar(ng, 225, sgn == 1 and 574 or 36, 270, 10, 0, sideColor)
+			return plate
+		end
 
-		-- Cementerio = pozo: borde alto, fondo hundido y remolino de neón
+		-- Mazo = muesca + pila de cartas que crece, con un reverso real encima
+		local d = Layout.deck(side)
+		notch("MuescaMazo_" .. side, d, false)
+		local stack = part("MazoPila_" .. side, Vector3.new(3.9, 0.3, 5.5), Vector3.new(d.x, 0.25, d.z), Color3.fromRGB(34, 28, 50), SMOOTH,
+			{ shadow = true })
+		local top = part("MazoReverso_" .. side, Vector3.new(3.9, 5.5, 0.02), Vector3.new(d.x, 0.41, d.z), Color3.fromRGB(34, 28, 50), SMOOTH,
+			{ rot = face })
+		local tg = surface(top, Enum.NormalId.Front, 390, 550, 0)
+		local broot = frame(tg, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(34, 28, 50) })
+		local function diamond(size, col)
+			frame(broot, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(size, size),
+				Rotation = 45, BackgroundColor3 = col })
+		end
+		diamond(210, Color3.fromRGB(212, 175, 85))
+		diamond(176, Color3.fromRGB(20, 18, 34))
+		diamond(90, color)
+		refs.decks[side] = stack
+		refs.deckTops[side] = top
+
+		-- Cementerio = muesca con doble marco + pila de descartes que crece (apagada: sin cartas es solo la muesca)
 		local g = Layout.graveyard(side)
-		disc("PozoBorde_" .. side, Layout.PEDESTAL_R * 2, 0.4, Vector3.new(g.x, 0.2, g.z), frameColor, METAL, { shadow = true })
-		local pit = disc("PozoFondo_" .. side, Layout.PEDESTAL_R * 2 - 1, 0.3, Vector3.new(g.x, 0.15, g.z), Color3.fromRGB(24, 22, 30), SMOOTH)
-		disc("PozoRemolino_" .. side, 2.4, 0.32, Vector3.new(g.x, 0.16, g.z), color, NEON, { glow = true, transparency = 0.35 })
-		refs.graveyards[side] = pit
+		notch("MuescaCementerio_" .. side, g, true)
+		refs.graveyards[side] = part("CementerioPila_" .. side, Vector3.new(3.9, 0.1, 5.5), Vector3.new(g.x, 0.15, g.z),
+			shade(skin.frame, 0.55), SMOOTH, { shadow = true, transparency = 1 })
 
 		-- Barrera baja y translúcida detrás de la Banca (aloja las grietas del Parche 3) + surco hasta el cristal
 		local bz = Layout.barrierZ(side)
@@ -331,13 +362,25 @@ function BoardBuilder.build(origin, quality, skinName)
 		refs.grooves[side] = { h, vtc }
 	end
 
-	-- La pila de mazo crece con las cartas que quedan (40 cartas ≈ 1.5 studs)
+	-- Las pilas crecen con las cartas que quedan (mazo: 40 cartas ≈ 1.5 studs) y el reverso sube con ellas
 	function refs.setDeck(side, count)
 		local st = refs.decks[side]
 		local d = Layout.deck(side)
 		local h = math.clamp(0.1 + (count or 0) * 0.035, 0.1, 1.6)
 		st.Size = Vector3.new(3.9, h, 5.5)
-		st.CFrame = CFrame.new(origin + Vector3.new(d.x, 0.5 + h / 2, d.z))
+		st.CFrame = CFrame.new(origin + Vector3.new(d.x, 0.1 + h / 2, d.z))
+		refs.deckTops[side].CFrame = CFrame.new(origin + Vector3.new(d.x, 0.1 + h + 0.011, d.z)) * face
+	end
+
+	-- Pila de descartes: invisible sin cartas; con cartas crece (cada una ≈ 0.08 studs, tope 1.2)
+	function refs.setGrave(side, count)
+		local pile = refs.graveyards[side]
+		local g = Layout.graveyard(side)
+		local n = count or 0
+		local h = math.clamp(0.1 + n * 0.08, 0.1, 1.2)
+		pile.Transparency = n > 0 and 0 or 1
+		pile.Size = Vector3.new(3.9, h, 5.5)
+		pile.CFrame = CFrame.new(origin + Vector3.new(g.x, 0.1 + h / 2, g.z))
 	end
 
 	-- ── Torres en las cuatro esquinas (una sola luz cada una) ──────────────

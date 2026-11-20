@@ -78,7 +78,7 @@ do
 	expect(lo.parts < hi.parts and lo.lights == 0 and #lo.sc.anim.fireflies == 0 and lo.sc.anim.river == nil and #lo.sc.glow == 0,
 		"calidad baja: sin luces, luciérnagas, río animado ni brillos")
 	expect(hi.lights <= 6, "como mucho una luz por torre y por cristal")
-	expect(#hi.sc.refs.discs == 19, "los redondos se crean con disc()")
+	expect(#hi.sc.refs.discs == 9, "los redondos se crean con disc()")
 	for _, p in ipairs(hi.sc.refs.discs) do
 		expect(p.Shape == S.Enum.PartType.Cylinder, "toda pieza redonda debe tener Shape = Cylinder: " .. p.Name)
 	end
@@ -98,6 +98,16 @@ do
 	-- Mazo: la pila crece con las cartas que quedan
 	hi.sc.refs.setDeck("Self", 30)
 	expect(hi.sc.refs.decks.Self.Size.Y > 1, "la pila del mazo crece con las cartas")
+	hi.sc.refs.setGrave("Self", 0)
+	expect(hi.sc.refs.graveyards.Self.Transparency == 1, "cementerio vacío: solo la muesca")
+	hi.sc.refs.setGrave("Self", 6)
+	expect(hi.sc.refs.graveyards.Self.Transparency == 0 and hi.sc.refs.graveyards.Self.Size.Y > 0.5, "la pila de descartes aparece y crece")
+	for _, side in ipairs({ "Self", "Enemy" }) do
+		local names = {}
+		for _, d in ipairs(hi.sc.folder:GetDescendants()) do names[d.Name or ""] = true end
+		expect(names["MuescaMazo_" .. side] and names["MuescaCementerio_" .. side] and names["MazoReverso_" .. side], "muescas y reverso: " .. side)
+		expect(not names["MazoPedestal_" .. side] and not names["PozoBorde_" .. side], "sin pedestal ni pozo viejos: " .. side)
+	end
 	expect(hi.sc.refs.markers["Self:Bench:3"] ~= nil and hi.sc.refs.hit["Enemy:Combat:1"] ~= nil, "marcadores y zonas por casilla")
 	-- Disco de turno: círculo (Frame + UICorner) con degradado de corte duro; sin CanvasGroup (no recortó en Studio)
 	local dcol = {}
