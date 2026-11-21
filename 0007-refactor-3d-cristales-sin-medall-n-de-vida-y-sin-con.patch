@@ -1,0 +1,169 @@
+From 601a5884111b7dcb2cb512fb4e8b6f3396ef459c Mon Sep 17 00:00:00 2001
+From: AEVUM dev <dev@aevum.local>
+Date: Fri, 20 Nov 2026 17:43:37 +0000
+Subject: [PATCH 7/8] =?UTF-8?q?refactor(3d):=20cristales=20sin=20medall?=
+ =?UTF-8?q?=C3=B3n=20de=20vida=20y=20sin=20contadores=20sobre=20las=20pila?=
+ =?UTF-8?q?s?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../AEVUM/UI3D/Board3D.luau                   | 68 ++-----------------
+ .../AEVUM/UI3D/BoardBuilder.luau              |  5 +-
+ tests/smoke/smoke.luau                        |  5 ++
+ 3 files changed, 11 insertions(+), 67 deletions(-)
+
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+index 3ea1a6d..15911f6 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+@@ -56,7 +56,6 @@ function Board3D.create(ctx)
+ 	local hidden = {} -- uid de mano -> true mientras su carta 3D todavía está llegando
+ 	local prev = nil -- snapshot del view anterior
+ 	local activeMarkers = {} -- clave de casilla -> true
+-	local labels = {}
+ 	local discAttacker = nil -- "Self" | "Enemy" | nil: quién tiene el derecho de ataque (view.attackerIdx)
+ 	local discDirty = true
+ 
+@@ -463,60 +462,7 @@ function Board3D.create(ctx)
+ 		end
+ 	end
+ 
+-	-- ══════════════ Resaltes, marcadores y contadores ══════════════
+-
+-	-- Medallón de vida pequeño sobre el plinto del cristal y contadores discretos sobre mazo y cementerio.
+-	-- Nada de letreros gigantes ni AlwaysOnTop: no tapan la mesa (error ya cometido, plan §9).
+-	local function ensureLabels()
+-		if labels.ready or not scene then return end
+-		labels.ready = true
+-		local function billboard(adornee, offset, w, h)
+-			local bb = Instance.new("BillboardGui")
+-			bb.Size = UDim2.fromOffset(w, h)
+-			bb.StudsOffset = offset
+-			bb.AlwaysOnTop = false
+-			bb.LightInfluence = 0
+-			bb.Adornee = adornee
+-			bb.Parent = adornee
+-			return bb
+-		end
+-		local function text(parent, props)
+-			local l = Instance.new("TextLabel")
+-			l.BackgroundTransparency = 1
+-			l.Font = Enum.Font.GothamBlack
+-			l.TextScaled = true
+-			l.TextStrokeTransparency = 0.35
+-			l.Text = ""
+-			for k, v in pairs(props) do l[k] = v end
+-			l.Parent = parent
+-			return l
+-		end
+-		local frameColor = Skins.rgb(scene.skin.frame)
+-		for _, side in ipairs(SIDES) do
+-			local color = scene.palette[side]
+-			-- Medallón: círculo oscuro con el número de vida (+ escudo en pequeño)
+-			local bb = billboard(scene.refs.plinth[side], Vector3.new(0, 1.1, 2.2), 46, 46)
+-			local medal = Instance.new("Frame")
+-			medal.Size = UDim2.fromScale(1, 1)
+-			medal.BackgroundColor3 = Color3.fromRGB(20, 18, 34)
+-			medal.BorderSizePixel = 0
+-			medal.Parent = bb
+-			local corner = Instance.new("UICorner")
+-			corner.CornerRadius = UDim.new(1, 0)
+-			corner.Parent = medal
+-			local stroke = Instance.new("UIStroke")
+-			stroke.Color = frameColor
+-			stroke.Thickness = 3
+-			stroke.Parent = medal
+-			labels["hp" .. side] = text(medal, { Size = UDim2.fromScale(1, 1), TextColor3 = Color3.fromRGB(255, 255, 255) })
+-			labels["shield" .. side] = text(bb, { Position = UDim2.new(1, -2, 0, -6), Size = UDim2.fromOffset(26, 16),
+-				TextColor3 = Color3.fromRGB(150, 210, 255), Visible = false })
+-			-- Contadores sobre las pilas
+-			labels["deck" .. side] = text(billboard(scene.refs.decks[side], Vector3.new(0, 1.5, 0), 40, 18), { Size = UDim2.fromScale(1, 1), TextColor3 = color })
+-			labels["grave" .. side] = text(billboard(scene.refs.graveyards[side], Vector3.new(0, 1.3, 0), 40, 18), { Size = UDim2.fromScale(1, 1),
+-				TextColor3 = Color3.fromRGB(235, 235, 245) })
+-		end
+-	end
++	-- ══════════════ Resaltes y marcadores ══════════════
+ 
+ 	local function setMarker(key, color)
+ 		local m = scene.refs.markers[key]
+@@ -616,18 +562,12 @@ function Board3D.create(ctx)
+ 			end
+ 		end
+ 
+-		-- Cristales de vida (objetivo "Avatar"), medallón, contadores y pila del mazo
+-		ensureLabels()
++		-- Cristales de vida (objetivo "Avatar") y pila del mazo. Sin números en la mesa: vida, escudo, energía,
++		-- mazo y cementerio se leen en la interfaz 2D (y, para las pilas, dentro de sus carruseles).
+ 		for _, side in ipairs(SIDES) do
+ 			local pl = side == "Self" and view.me or view.opp
+ 			local color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or scene.palette[side]
+ 			for _, p in ipairs(scene.refs.vitalGem[side]) do p.Color = color end
+-			labels["hp" .. side].Text = tostring(pl.hp)
+-			local shield = pl.shield or 0
+-			labels["shield" .. side].Visible = shield > 0
+-			labels["shield" .. side].Text = "+" .. shield
+-			labels["deck" .. side].Text = tostring(pl.deck)
+-			labels["grave" .. side].Text = tostring(#pl.graveyard)
+ 			scene.refs.setDeck(side, pl.deck)
+ 		end
+ 
+@@ -784,7 +724,7 @@ function Board3D.create(ctx)
+ 			for _ in pairs(live) do n += 1 end
+ 			for _ in pairs(flyers) do f += 1 end
+ 			for _ in pairs(hidden) do h += 1 end
+-			return { live = n, flyers = f, hidden = h }
++			return { live = n, flyers = f, hidden = h, folder = scene and scene.folder or nil }
+ 		end,
+ 	}
+ 	return render, show, hide, api
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+index 094ce6e..dce0a8d 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+@@ -53,7 +53,7 @@ function BoardBuilder.build(origin, quality, skinName)
+ 	local anim = { river = nil, fireflies = {} }
+ 	local refs = {
+ 		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, graveyards = {},
+-		barriers = {}, grooves = {}, plinth = {}, discs = {}, disc = nil,
++		barriers = {}, grooves = {}, discs = {}, disc = nil,
+ 	}
+ 	local palette = BoardBuilder.palette(skinName)
+ 
+@@ -271,7 +271,7 @@ function BoardBuilder.build(origin, quality, skinName)
+ 
+ 		-- Cristal facetado: fuste de 8 caras (dos bloques a 0° y 45°) con una punta de cubo arriba y abajo
+ 		local v = Layout.vital(side)
+-		local plinth = disc("CristalPlinto_" .. side, 3.6, 0.7, Vector3.new(v.x, 0.35, v.z), frameColor, METAL, { shadow = true })
++		disc("CristalPlinto_" .. side, 3.6, 0.7, Vector3.new(v.x, 0.35, v.z), frameColor, METAL, { shadow = true })
+ 		disc("CristalAro_" .. side, 3.9, 0.06, Vector3.new(v.x, 0.03, v.z), color, NEON, { glow = true, transparency = 0.3 })
+ 		local shaft = part("Cristal_" .. side, Vector3.new(1.2, 1.5, 1.2), Vector3.new(v.x, 2.5, v.z), color, NEON,
+ 			{ transparency = 0.12, glow = true, shadow = true })
+@@ -284,7 +284,6 @@ function BoardBuilder.build(origin, quality, skinName)
+ 		light(shaft, color, 12, 1)
+ 		refs.vitals[side] = shaft
+ 		refs.vitalGem[side] = { shaft, shaft2, tipLo, tipHi }
+-		refs.plinth[side] = plinth -- aquí se ancla el medallón de vida
+ 		-- Zona táctil del avatar: ajustada al cristal, para no tapar lo que hay detrás
+ 		local vhit = part("ZonaCristal_" .. side, Vector3.new(4.2, 4, 4.2), Vector3.new(v.x, 2.2, v.z), color, nil,
+ 			{ transparency = 1, query = true })
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+index b5ab609..0cf3cbc 100644
+--- a/tests/smoke/smoke.luau
++++ b/tests/smoke/smoke.luau
+@@ -163,6 +163,11 @@ local function hnd(uid, cardId) return { uid = uid, cardId = cardId, cost = Card
+ render(state(mkView({ hand = { hnd(1, "APRENDIZ"), hnd(2, "CENTINELA"), hnd(3, "GOLPE") } })))
+ expect(api.debug().live == 0 and api.debug().flyers == 0, "primer estado vacío")
+ 
++-- 1a) sin números ni letreros sobre la mesa (medallón de vida, contadores de pila), ya renderizada la vista
++for _, d in ipairs(api.debug().folder:GetDescendants()) do
++	expect(d.ClassName ~= "BillboardGui" and d.ClassName ~= "TextLabel", "sin letreros sobre la mesa: " .. tostring(d.Name or d.ClassName))
++end
++
+ -- 1b) disco de turno: brilla la mitad de quien ataca (view.attackerIdx); sin atacante al terminar
+ expect(api.discAttacker() == "Self", "disco: ataco yo (attackerIdx == you)")
+ do
+-- 
+2.43.0
+

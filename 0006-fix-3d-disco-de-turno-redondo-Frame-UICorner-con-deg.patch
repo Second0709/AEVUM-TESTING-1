@@ -1,0 +1,166 @@
+From 9b28c8458d5fa1681f3079bd29b86c418dca0441 Mon Sep 17 00:00:00 2001
+From: AEVUM dev <dev@aevum.local>
+Date: Fri, 20 Nov 2026 17:43:06 +0000
+Subject: [PATCH 6/8] fix(3d): disco de turno redondo (Frame+UICorner con
+ degradado de corte duro, sin CanvasGroup)
+
+---
+ .../AEVUM/UI3D/Board3D.luau                   |  2 +-
+ .../AEVUM/UI3D/BoardBuilder.luau              | 52 ++++++++++++-------
+ tests/smoke/_stubs.luau                       |  4 +-
+ tests/smoke/run.py                            |  4 +-
+ tests/smoke/smoke.luau                        | 19 +++++++
+ 5 files changed, 59 insertions(+), 22 deletions(-)
+
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+index 3f33a1a..3ea1a6d 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+@@ -650,7 +650,7 @@ function Board3D.create(ctx)
+ 			if discAttacker == nil then k = 0.8
+ 			elseif discAttacker == side then k = pulsing and (1.05 + 0.2 * math.sin(t * 4.4)) or 1.1
+ 			else k = 0.45 end
+-			scene.refs.disc[side].BackgroundColor3 = Skins.shade(Skins.side(scene.skin, side), k)
++			scene.refs.disc.set(side, Skins.shade(Skins.side(scene.skin, side), k))
+ 		end
+ 	end
+ 
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+index bd75221..094ce6e 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+@@ -220,33 +220,49 @@ function BoardBuilder.build(origin, quality, skinName)
+ 	end
+ 
+ 	-- ── Disco de turno: círculo partido, mitad superior roja (rival) e inferior azul (tú) ──
++	-- El círculo es un Frame con UICorner (la misma técnica de los anillos de las baldosas) y las dos mitades son
++	-- un UIGradient de corte duro. CanvasGroup + UICorner no recortó en Studio (salían esquinas): no usarlo.
+ 	local dr = Layout.DISC_R
+ 	disc("DiscoBase", dr * 2 + 0.4, 0.16, Vector3.new(0, 0.12, 0), frameColor, METAL, { shadow = true })
+ 	local holder = part("DiscoCara", Vector3.new(dr * 2, dr * 2, 0.02), Vector3.new(0, 0.215, 0), Color3.fromRGB(255, 255, 255),
+ 		SMOOTH, { rot = face, transparency = 1 })
+ 	local dg = surface(holder, Enum.NormalId.Front, 400, 400, 0)
+-	local group = Instance.new("CanvasGroup") -- recorta las mitades con el círculo
+-	group.Size = UDim2.fromScale(1, 1)
+-	group.BackgroundTransparency = 1
+-	group.BorderSizePixel = 0
+-	group.Parent = dg
+-	local gc = Instance.new("UICorner")
+-	gc.CornerRadius = UDim.new(1, 0)
+-	gc.Parent = group
+-	local topHalf = frame(group, { Name = "MitadRival", Size = UDim2.fromScale(1, 0.5), BackgroundColor3 = palette.Enemy })
+-	local botHalf = frame(group, { Name = "MitadAliada", Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromScale(1, 0.5),
+-		BackgroundColor3 = palette.Self })
+-	frame(group, { Position = UDim2.new(0, 0, 0.5, -3), Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
+-	local dot = frame(group, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++	local circle = frame(dg, { Name = "DiscoCirculo", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++		Size = UDim2.fromScale(0.94, 0.94), BackgroundColor3 = Color3.fromRGB(255, 255, 255) }) -- 0.94: deja sitio al borde
++	local cc = Instance.new("UICorner")
++	cc.CornerRadius = UDim.new(1, 0)
++	cc.Parent = circle
++	local grad = Instance.new("UIGradient")
++	grad.Rotation = 90 -- de arriba (rival) a abajo (tú)
++	grad.Parent = circle
++	local cs = Instance.new("UIStroke")
++	cs.Color = Color3.fromRGB(255, 255, 255)
++	cs.Thickness = 8
++	cs.Parent = circle
++	frame(circle, { Name = "DiscoLinea", Position = UDim2.new(0, 0, 0.5, -3), Size = UDim2.new(1, 0, 0, 6),
++		BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
++	local dot = frame(circle, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+ 		Size = UDim2.fromOffset(56, 56), BackgroundColor3 = Color3.fromRGB(255, 255, 255) })
+ 	local dc = Instance.new("UICorner")
+ 	dc.CornerRadius = UDim.new(1, 0)
+ 	dc.Parent = dot
+-	local gs = Instance.new("UIStroke")
+-	gs.Color = Color3.fromRGB(255, 255, 255)
+-	gs.Thickness = 8
+-	gs.Parent = group
+-	refs.disc = { Enemy = topHalf, Self = botHalf }
++	local halves = { Enemy = palette.Enemy, Self = palette.Self }
++	local function paintDisc()
++		local e, m = halves.Enemy, halves.Self
++		-- corte duro en 0.5 (los tiempos no se repiten por si Roblox los exige estrictos)
++		grad.Color = ColorSequence.new({
++			ColorSequenceKeypoint.new(0, e), ColorSequenceKeypoint.new(0.5, e),
++			ColorSequenceKeypoint.new(0.501, m), ColorSequenceKeypoint.new(1, m),
++		})
++	end
++	paintDisc()
++	refs.disc = {
++		gradient = grad,
++		set = function(side, color) -- color de la mitad "Enemy" (arriba) o "Self" (abajo)
++			halves[side] = color
++			paintDisc()
++		end,
++	}
+ 
+ 	-- ── Columna lateral: cristal de vida, mazo y cementerio de cada bando ──
+ 	for _, side in ipairs(SIDES) do
+diff --git a/tests/smoke/_stubs.luau b/tests/smoke/_stubs.luau
+index 7c2ee04..5fc1a6a 100644
+--- a/tests/smoke/_stubs.luau
++++ b/tests/smoke/_stubs.luau
+@@ -24,6 +24,8 @@ local Color3 = { fromRGB = function(r, g, b) return { r, g, b } end, new = funct
+ local UDim2 = { new = function() return {} end, fromOffset = function() return {} end, fromScale = function() return {} end }
+ local UDim = { new = function() return {} end }
+ local TweenInfo = { new = function() return {} end }
++local ColorSequenceKeypoint = { new = function(t, c) return { Time = t, Value = c } end }
++local ColorSequence = { new = function(k) return { Keypoints = k } end }
+ local Enum = setmetatable({}, { __index = function(_, a) return setmetatable({}, { __index = function(_, b) return a .. "." .. b end }) end })
+ local RaycastParams = { new = function() return {} end }
+ 
+@@ -109,4 +111,4 @@ local script = { Parent = setmetatable({}, { __index = function(_, name)
+ end }) }
+ 
+ 
+-return { Vector3=Vector3, Vector2=Vector2, CFrame=CFrame, Color3=Color3, UDim2=UDim2, UDim=UDim, TweenInfo=TweenInfo, Enum=Enum, RaycastParams=RaycastParams, Instance=Instance, workspace=workspace, game=game, task=task, script=script, renderSteppedFns=renderSteppedFns, flushDeferred=flushDeferred, V3=V3 }
++return { Vector3=Vector3, Vector2=Vector2, CFrame=CFrame, Color3=Color3, UDim2=UDim2, UDim=UDim, TweenInfo=TweenInfo, ColorSequence=ColorSequence, ColorSequenceKeypoint=ColorSequenceKeypoint, Enum=Enum, RaycastParams=RaycastParams, Instance=Instance, workspace=workspace, game=game, task=task, script=script, renderSteppedFns=renderSteppedFns, flushDeferred=flushDeferred, V3=V3 }
+diff --git a/tests/smoke/run.py b/tests/smoke/run.py
+index 3a898b2..5af3871 100644
+--- a/tests/smoke/run.py
++++ b/tests/smoke/run.py
+@@ -20,8 +20,8 @@ inj = (
+     'local realRequire = require\n'
+     'local S = realRequire("./_stubs")\n'
+     'local function require(m) if type(m) == "table" then return m end return realRequire(m) end\n'
+-    'local Vector3, Vector2, CFrame, Color3, UDim2, UDim, TweenInfo, Enum, RaycastParams, Instance, workspace, game, task, script = '
+-    'S.Vector3, S.Vector2, S.CFrame, S.Color3, S.UDim2, S.UDim, S.TweenInfo, S.Enum, S.RaycastParams, S.Instance, S.workspace, S.game, S.task, S.script\n'
++    'local Vector3, Vector2, CFrame, Color3, UDim2, UDim, TweenInfo, ColorSequence, ColorSequenceKeypoint, Enum, RaycastParams, Instance, workspace, game, task, script = '
++    'S.Vector3, S.Vector2, S.CFrame, S.Color3, S.UDim2, S.UDim, S.TweenInfo, S.ColorSequence, S.ColorSequenceKeypoint, S.Enum, S.RaycastParams, S.Instance, S.workspace, S.game, S.task, S.script\n'
+ )
+ tmp = tempfile.mkdtemp()
+ try:
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+index 9f636d5..b5ab609 100644
+--- a/tests/smoke/smoke.luau
++++ b/tests/smoke/smoke.luau
+@@ -99,6 +99,25 @@ do
+ 	hi.sc.refs.setDeck("Self", 30)
+ 	expect(hi.sc.refs.decks.Self.Size.Y > 1, "la pila del mazo crece con las cartas")
+ 	expect(hi.sc.refs.markers["Self:Bench:3"] ~= nil and hi.sc.refs.hit["Enemy:Combat:1"] ~= nil, "marcadores y zonas por casilla")
++	-- Disco de turno: círculo (Frame + UICorner) con degradado de corte duro; sin CanvasGroup (no recortó en Studio)
++	local dcol = {}
++	for _, d in ipairs(hi.sc.folder:GetDescendants()) do
++		expect(d.ClassName ~= "CanvasGroup", "sin CanvasGroup en la arena")
++		if d.Name == "DiscoCirculo" then dcol = d:GetChildren() end
++	end
++	local hasCorner, hasGrad = false, false
++	for _, c in ipairs(dcol) do
++		hasCorner = hasCorner or c.ClassName == "UICorner"
++		hasGrad = hasGrad or c.ClassName == "UIGradient"
++	end
++	expect(hasCorner and hasGrad, "el disco es un círculo redondeado con degradado")
++	local RED, BLUE2 = { 200, 40, 40 }, { 40, 80, 200 }
++	hi.sc.refs.disc.set("Enemy", RED)
++	hi.sc.refs.disc.set("Self", BLUE2)
++	local kp = hi.sc.refs.disc.gradient.Color.Keypoints
++	expect(#kp == 4 and kp[1].Value == RED and kp[2].Value == RED and kp[3].Value == BLUE2 and kp[4].Value == BLUE2,
++		"disco: arriba el color del rival, abajo el tuyo, con corte en el centro")
++	expect(kp[2].Time < kp[3].Time, "los tiempos del corte no se repiten")
+ 	-- Skins: las tres construyen
+ 	for _, name in ipairs({ "Ruinas", "Circuito", "Templo" }) do
+ 		expect(BoardBuilder.build(S.V3(0, 0, 0), "High", name).refs.disc ~= nil, "la skin " .. name .. " construye la arena")
+-- 
+2.43.0
+

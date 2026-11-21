@@ -428,6 +428,22 @@ function BoardBuilder.applyLighting(quality, skinName)
 		GlobalShadows = Lighting.GlobalShadows,
 		ExposureCompensation = Lighting.ExposureCompensation,
 	}
+
+	-- Desactivar los efectos de post-procesado y atmósfera preexistentes del mapa
+	-- (Bloom, SunRays, DepthOfField, etc.) para que no se acumulen con los de AEVUM.
+		-- Se restauran al salir del tablero.
+	local disabled = {}
+	for _, e in ipairs(Lighting:GetChildren()) do
+		if e:IsA("PostEffect") then
+			disabled[#disabled + 1] = { effect = e, wasEnabled = e.Enabled }
+			e.Enabled = false
+		elseif e:IsA("Atmosphere") then
+			-- Atmosphere no tiene propiedad Enabled: se aparta y se vuelve a montar al restaurar.
+			disabled[#disabled + 1] = { effect = e, parent = e.Parent }
+			e.Parent = nil
+		end
+	end
+
 	Lighting.Ambient = Skins.rgb(L.ambient)
 	Lighting.OutdoorAmbient = Skins.rgb(L.outdoor)
 	Lighting.Brightness = L.brightness
@@ -461,6 +477,15 @@ function BoardBuilder.applyLighting(quality, skinName)
 	return function()
 		for k, v in pairs(saved) do Lighting[k] = v end
 		for _, e in ipairs(extras) do e:Destroy() end
+		-- Reactivar los efectos del mapa que se desactivaron al entrar.
+		for _, entry in ipairs(disabled) do
+			local e = entry.effect
+			if e.Parent == nil and entry.parent then
+				e.Parent = entry.parent -- Atmosphere apartada: volver a montarla.
+			elseif entry.wasEnabled ~= nil then
+				e.Enabled = entry.wasEnabled -- PostEffect: restaurar su estado previo.
+			end
+		end
 	end
 end
 

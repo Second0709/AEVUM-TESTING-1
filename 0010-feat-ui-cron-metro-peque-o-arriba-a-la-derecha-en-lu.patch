@@ -1,0 +1,260 @@
+From 82dc683d37bb94a98577220a8240cfd14091f1bd Mon Sep 17 00:00:00 2001
+From: AEVUM dev <dev@aevum.local>
+Date: Sat, 21 Nov 2026 00:46:13 +0000
+Subject: [PATCH 10/11] =?UTF-8?q?feat(ui):=20cron=C3=B3metro=20peque=C3=B1?=
+ =?UTF-8?q?o=20arriba=20a=20la=20derecha=20en=20lugar=20de=20la=20barra=20?=
+ =?UTF-8?q?superior?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../AEVUM/AevumClient.client.luau             | 21 ++----
+ src/StarterPlayerScripts/AEVUM/UI/Pause.luau  |  2 +-
+ src/StarterPlayerScripts/AEVUM/UI/Timer.luau  | 74 +++++++++++++++++++
+ tests/Turn.spec.luau                          | 23 ++++++
+ tests/smoke/run.py                            |  2 +-
+ tests/smoke/smoke.luau                        | 37 ++++++++++
+ 6 files changed, 141 insertions(+), 18 deletions(-)
+ create mode 100644 src/StarterPlayerScripts/AEVUM/UI/Timer.luau
+
+diff --git a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+index 46bb958..0a73e7c 100644
+--- a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
++++ b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+@@ -25,6 +25,7 @@ local RightPanelUI = require(UI:WaitForChild("RightPanel"))
+ local LobbyUI = require(UI:WaitForChild("Lobby"))
+ local PauseUI = require(UI:WaitForChild("Pause"))
+ local TurnCardUI = require(UI:WaitForChild("TurnCard"))
++local TimerUI = require(UI:WaitForChild("Timer"))
+ local OverlayUI = require(UI:WaitForChild("Overlay"))
+ local Board3DUI = use3D and require(script.Parent:WaitForChild("UI3D"):WaitForChild("Board3D")) or nil
+ local new, clear = Widgets.new, Widgets.clear
+@@ -48,11 +49,8 @@ for _ = 1, 70 do
+ 		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, starsLayer)
+ end
+ 
+-local topBar = new("TextLabel", { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(1, 0, 0.065, 0),
+-	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12, TextColor3 = Color3.fromRGB(77, 225, 255),
+-	Font = Enum.Font.GothamBold, TextScaled = true, Text = "", ZIndex = 2 }, gameFrame)
+-new("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 8 }, topBar)
+-new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1 }, topBar)
++-- Cronómetro pequeño arriba a la derecha (sustituye a la barra superior; el número de turno sigue en el registro)
++local updateTimer = TimerUI.create(gameFrame, new)
+ 
+ local left = new("Frame", { Position = UDim2.new(0.012, 0, 0.08, 0), Size = UDim2.new(0.13, 0, 0.91, 0),
+ 	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12 }, gameFrame)
+@@ -464,15 +462,6 @@ RunService.Heartbeat:Connect(function()
+ 		pauseBtn.Text = view.paused and "REANUDAR" or "PAUSAR"
+ 		pauseBtn.BackgroundColor3 = view.paused and Color3.fromRGB(60, 160, 60) or Color3.fromRGB(200, 60, 60)
+ 	end
+-	if view.over then topBar.Text = "Partida terminada" return end
+-	if view.paused then
+-		topBar.Text = ("PAUSADO · Turno %d · El reloj está detenido"):format(view.turn)
+-		return
+-	end
+-	local w = view.waiting
+-	local left = math.max(0, math.ceil(w.timeLeft - (os.clock() - recvAt)))
+-	local who = (w.player == view.you) and "TU PRIORIDAD" or "PRIORIDAD DEL RIVAL"
+-	local owner = view.attackerIdx == view.you and "TU TURNO" or "TURNO RIVAL"
+-	local phase = view.attackOpen and "" or " · Apertura: sin ataque"
+-	topBar.Text = ("Turno %d · %s%s · %s · %ds"):format(view.turn, owner, phase, who, left)
++	local now = os.clock()
++	updateTimer(TimerUI.state(view, now, recvAt), now)
+ end)
+\ No newline at end of file
+diff --git a/src/StarterPlayerScripts/AEVUM/UI/Pause.luau b/src/StarterPlayerScripts/AEVUM/UI/Pause.luau
+index e1c81f5..bd769c7 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI/Pause.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI/Pause.luau
+@@ -3,7 +3,7 @@ local Pause = {}
+ function Pause.create(parent, theme, widgets, remotes)
+ 	local button = widgets.new("TextButton", {
+ 		Size = UDim2.new(0, 140, 0, 40),
+-		Position = UDim2.new(1, -150, 0, 10),
++		Position = UDim2.new(1, -270, 0, 10), -- a la izquierda del cronómetro (arriba a la derecha)
+ 		BackgroundColor3 = Color3.fromRGB(200, 60, 60),
+ 		TextColor3 = theme.text,
+ 		Font = Enum.Font.GothamBold,
+diff --git a/src/StarterPlayerScripts/AEVUM/UI/Timer.luau b/src/StarterPlayerScripts/AEVUM/UI/Timer.luau
+new file mode 100644
+index 0000000..e5742df
+--- /dev/null
++++ b/src/StarterPlayerScripts/AEVUM/UI/Timer.luau
+@@ -0,0 +1,74 @@
++--!nonstrict
++-- Cronómetro pequeño arriba a la derecha (sustituye a la barra superior).
++-- El tiempo es de QUIEN TIENE LA PRIORIDAD, no siempre del jugador:
++--   tu prioridad → normal; en los últimos 5 s → rojo y pulsando
++--   prioridad del rival → sigue contando, atenuado
++--   pausa → símbolo de pausa · partida terminada → oculto
++local Timer = {}
++
++Timer.URGENT_AT = 5 -- segundos
++Timer.RIGHT_X = 0.985
++Timer.TOP_Y = 0.015
++
++-- Lógica pura (se prueba sin Roblox). `recvAt` = instante (os.clock) en que llegó la vista.
++function Timer.state(view, now, recvAt)
++	if not view or view.over then return { mode = "hidden" } end
++	if view.paused then return { mode = "paused" } end
++	local w = view.waiting
++	if not w or w.timeLeft == nil then return { mode = "hidden" } end
++	local seconds = math.max(0, math.ceil(w.timeLeft - (now - recvAt)))
++	local mine = w.player == view.you
++	local mode = "normal"
++	if not mine then mode = "dim"
++	elseif seconds <= Timer.URGENT_AT then mode = "urgent" end
++	return { mode = mode, seconds = seconds, mine = mine }
++end
++
++-- Devuelve la función `update(state, now)` que pinta el estado calculado por Timer.state.
++function Timer.create(parent, new)
++	local root = new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(Timer.RIGHT_X, 0, Timer.TOP_Y, 0),
++		Size = UDim2.new(0.07, 0, 0.055, 0), BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.15,
++		Visible = false, ZIndex = 12, Active = false }, parent)
++	new("UICorner", { CornerRadius = UDim.new(0, 10) }, root)
++	new("UISizeConstraint", { MinSize = Vector2.new(56, 30), MaxSize = Vector2.new(96, 46) }, root)
++	local stroke = new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1.5 }, root)
++	local scale = new("UIScale", { Scale = 1 }, root)
++	local label = new("TextLabel", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Font = Enum.Font.GothamBlack,
++		TextScaled = true, Text = "", TextColor3 = Color3.fromRGB(77, 225, 255), ZIndex = 13, Active = false }, root)
++	new("UITextSizeConstraint", { MaxTextSize = 26, MinTextSize = 10 }, label)
++	new("UIPadding", { PaddingTop = UDim.new(0.12, 0), PaddingBottom = UDim.new(0.12, 0) }, label)
++	-- símbolo de pausa: dos barras (un emoji o ⏸ puede no existir en la fuente)
++	local bars = {}
++	for i = 1, 2 do
++		bars[i] = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(i == 1 and 0.42 or 0.58, 0.5),
++			Size = UDim2.fromScale(0.09, 0.5), BackgroundColor3 = Color3.fromRGB(255, 214, 102), BorderSizePixel = 0,
++			Visible = false, ZIndex = 13, Active = false }, root)
++	end
++
++	return function(st, now)
++		if st.mode == "hidden" then root.Visible = false return end
++		root.Visible = true
++		local paused = st.mode == "paused"
++		label.Visible = not paused
++		for _, b in ipairs(bars) do b.Visible = paused end
++		scale.Scale = 1
++		root.BackgroundTransparency = 0.15
++		stroke.Color = Color3.fromRGB(42, 53, 104)
++		stroke.Transparency = 0
++		label.TextTransparency = 0
++		label.TextColor3 = Color3.fromRGB(77, 225, 255)
++		if paused then return end
++		label.Text = tostring(st.seconds)
++		if st.mode == "dim" then
++			root.BackgroundTransparency = 0.55
++			stroke.Transparency = 0.6
++			label.TextTransparency = 0.55
++		elseif st.mode == "urgent" then
++			label.TextColor3 = Color3.fromRGB(255, 92, 92)
++			stroke.Color = Color3.fromRGB(255, 92, 92)
++			scale.Scale = 1 + 0.1 * (0.5 + 0.5 * math.sin(now * 10))
++		end
++	end
++end
++
++return Timer
+diff --git a/tests/Turn.spec.luau b/tests/Turn.spec.luau
+index 2dc2642..99ad6cf 100644
+--- a/tests/Turn.spec.luau
++++ b/tests/Turn.spec.luau
+@@ -1,5 +1,6 @@
+ -- Textos de la tarjeta de turno (lógica pura).
+ local TurnCard = require("../src/StarterPlayerScripts/AEVUM/UI/TurnCard")
++local Timer = require("../src/StarterPlayerScripts/AEVUM/UI/Timer")
+ 
+ local function expect(c, m) if not c then error(m, 2) end end
+ 
+@@ -16,4 +17,26 @@ expect(TurnCard.texts({ attackerIdx = 2, you = 1, attackOpen = false }).mine ==
+ expect(TurnCard.TOTAL >= 1.5 and TurnCard.TOTAL <= 2.5, "dura ~2 s")
+ expect(TurnCard.REST_X < 0.835, "queda a la izquierda de la columna derecha")
+ 
++-- Cronómetro: el tiempo es de quien tiene la prioridad
++local function view(o)
++	local v = { you = 1, over = false, paused = false, waiting = { player = 1, timeLeft = 30 } }
++	for k, val in pairs(o or {}) do v[k] = val end
++	return v
++end
++local st = Timer.state(view(), 100, 100)
++expect(st.mode == "normal" and st.seconds == 30 and st.mine, "tu prioridad: normal, 30 s")
++st = Timer.state(view(), 112.2, 100)
++expect(st.seconds == 18, "descuenta lo transcurrido desde que llegó la vista (redondeo hacia arriba): " .. st.seconds)
++st = Timer.state(view(), 100, 100)
++expect(Timer.state(view({ waiting = { player = 1, timeLeft = 5 } }), 100, 100).mode == "urgent", "últimos 5 s: urgente")
++expect(Timer.state(view({ waiting = { player = 1, timeLeft = 6 } }), 100, 100).mode == "normal", "6 s todavía no es urgente")
++st = Timer.state(view({ waiting = { player = 2, timeLeft = 3 } }), 100, 100)
++expect(st.mode == "dim" and st.seconds == 3 and not st.mine, "prioridad del rival: sigue contando, atenuado, sin alarma")
++expect(Timer.state(view({ waiting = { player = 1, timeLeft = 4 } }), 200, 100).seconds == 0, "nunca baja de 0")
++expect(Timer.state(view({ paused = true }), 100, 100).mode == "paused", "en pausa: símbolo de pausa")
++expect(Timer.state(view({ over = true }), 100, 100).mode == "hidden", "partida terminada: oculto")
++expect(Timer.state(view({ over = true, paused = true }), 100, 100).mode == "hidden", "terminada manda sobre pausa")
++expect(Timer.state(view({ waiting = false }), 100, 100).mode == "hidden", "sin ventana de espera: oculto")
++expect(Timer.state(nil, 100, 100).mode == "hidden", "sin vista: oculto")
++
+ print("Turn.spec OK")
+diff --git a/tests/smoke/run.py b/tests/smoke/run.py
+index 8d13eae..e347bf2 100644
+--- a/tests/smoke/run.py
++++ b/tests/smoke/run.py
+@@ -28,7 +28,7 @@ try:
+     for m in mods:
+         src = open(os.path.join(ui3d, m + ".luau"), encoding="utf-8").read()
+         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
+-    for m in ("CardDetail", "TurnCard"):
++    for m in ("CardDetail", "TurnCard", "Timer"):
+         src = open(os.path.join(ui2d, m + ".luau"), encoding="utf-8").read()
+         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
+     shutil.copy(os.path.join(root, "src", "ReplicatedStorage", "AEVUM", "CardDatabase.luau"), tmp)
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+index a8b32cb..ef45665 100644
+--- a/tests/smoke/smoke.luau
++++ b/tests/smoke/smoke.luau
+@@ -88,6 +88,43 @@ do
+ 	expect(card.Visible == false, "al terminar la partida se oculta")
+ end
+ 
++-- 0b3) cronómetro: pequeño, no bloquea toques; normal / atenuado / rojo pulsando / pausa / oculto
++do
++	local Timer = require("./Timer")
++	local parent = S.Instance.new("Frame")
++	local function new(class, props, p)
++		local o = S.Instance.new(class)
++		for k, v in pairs(props) do o[k] = v end
++		o.Parent = p
++		return o
++	end
++	local update = Timer.create(parent, new)
++	local root = parent:GetChildren()[1]
++	local label, scale, bars = nil, nil, {}
++	for _, d in ipairs(root:GetDescendants()) do
++		if d.Text ~= nil then label = d end
++		if d.ClassName == "UIScale" then scale = d end
++		if d.ClassName == "Frame" then bars[#bars + 1] = d end
++	end
++	expect(root.Active == false and label.Active == false, "el cronómetro no se traga los toques")
++	update({ mode = "hidden" }, 0)
++	expect(root.Visible == false, "oculto al terminar")
++	update({ mode = "normal", seconds = 27 }, 0)
++	expect(root.Visible and label.Text == "27" and label.TextTransparency == 0 and scale.Scale == 1, "normal")
++	local normalColor = label.TextColor3
++	update({ mode = "dim", seconds = 27 }, 0)
++	expect(label.TextTransparency > 0.3 and label.Text == "27", "rival: sigue contando, atenuado")
++	update({ mode = "urgent", seconds = 4 }, 0.16)
++	expect(label.TextColor3 ~= normalColor and scale.Scale > 1, "últimos 5 s: rojo y pulsando")
++	local s1 = scale.Scale
++	update({ mode = "urgent", seconds = 4 }, 0.47)
++	expect(scale.Scale ~= s1, "el pulso cambia con el tiempo")
++	update({ mode = "paused" }, 0)
++	expect(label.Visible == false and #bars == 2 and bars[1].Visible and bars[2].Visible, "pausa: dos barras, sin número")
++	update({ mode = "normal", seconds = 9 }, 0)
++	expect(label.Visible == true and not bars[1].Visible, "al reanudar vuelve el número")
++end
++
+ -- 0c) arena: presupuesto de partes, redondos con Shape = Cylinder, zonas táctiles justas, calidad baja más ligera
+ do
+ 	local BoardBuilder = require("./BoardBuilder")
+-- 
+2.43.0
+

@@ -1,0 +1,48 @@
+From 836a76f686eca7744c2d8d7dd96763469dd1d781 Mon Sep 17 00:00:00 2001
+From: AEVUM dev <dev@aevum.local>
+Date: Sat, 21 Nov 2026 00:46:29 +0000
+Subject: [PATCH 11/11] =?UTF-8?q?feat(3d):=20reencuadre=20de=20c=C3=A1mara?=
+ =?UTF-8?q?=20al=20liberar=20la=20franja=20superior=20(carta=20~89=20px=20?=
+ =?UTF-8?q?a=201080p)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau | 5 +++--
+ tests/Layout.spec.luau                          | 3 +++
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+index e8820f5..7c3f262 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Layout.luau
+@@ -121,8 +121,9 @@ function Layout.halfExtents()
+ end
+ 
+ -- Región de pantalla (fracciones 0..1) que dejan libre los paneles 2D.
+--- Coincide con el diseño actual: tablero entre el panel izquierdo y el derecho, sobre la mano.
+-Layout.SCREEN_REGION = { x0 = 0.15, x1 = 0.83, y0 = 0.08, y1 = 0.76 }
++-- Tablero entre el panel izquierdo y el derecho, sobre la mano. Sin barra superior (y0 = 0.04: un pequeño margen
++-- bajo el borde de la pantalla; los botones de Roblox quedan a la izquierda de x0).
++Layout.SCREEN_REGION = { x0 = 0.15, x1 = 0.83, y0 = 0.04, y1 = 0.76 }
+ 
+ -- Encuadre de cámara para que la mesa quepa en `region` de la pantalla.
+ -- aspect = ancho/alto de la pantalla · vfovDeg = FOV vertical · pitchDeg = inclinación bajo el horizonte.
+diff --git a/tests/Layout.spec.luau b/tests/Layout.spec.luau
+index 286eeb6..07cc60f 100644
+--- a/tests/Layout.spec.luau
++++ b/tests/Layout.spec.luau
+@@ -74,6 +74,9 @@ local near46 = Layout.cameraFit(16 / 9, 45, 46)
+ expect(near46.distance < Layout.cameraFit(16 / 9, 45, 58).distance, "pitch 46° acerca la cámara")
+ local px = Layout.cardScreenWidth(16 / 9, 45, 46, 1080)
+ expect(px >= 80, "una carta debe medir >= 80 px de ancho a 1080p (mide " .. string.format("%.1f", px) .. ")")
++-- Sin barra superior la región sube y la carta crece (antes 84 px con y0 = 0.08)
++expect(Layout.SCREEN_REGION.y0 <= 0.05, "la región ya no deja sitio a la barra superior")
++expect(px >= 86, "sin barra superior la carta debe medir >= 86 px a 1080p (mide " .. string.format("%.1f", px) .. ")")
+ -- La mesa no puede quedar recortada en vertical (móvil): la distancia debe seguir creciendo
+ expect(Layout.cameraFit(9 / 16, 45, 46).distance > Layout.cameraFit(4 / 3, 45, 46).distance, "en vertical la cámara se aleja más")
+ 
+-- 
+2.43.0
+

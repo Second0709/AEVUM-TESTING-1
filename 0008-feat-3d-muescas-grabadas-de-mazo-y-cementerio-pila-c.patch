@@ -1,0 +1,161 @@
+From d5981a6ac8e8d458ad70882e893dd5e8d3184eec Mon Sep 17 00:00:00 2001
+From: AEVUM dev <dev@aevum.local>
+Date: Fri, 20 Nov 2026 23:39:26 +0000
+Subject: [PATCH 8/8] feat(3d): muescas grabadas de mazo y cementerio, pila con
+ reverso real y pila de descartes que crece
+
+---
+ .../AEVUM/UI3D/Board3D.luau                   |  1 +
+ .../AEVUM/UI3D/BoardBuilder.luau              | 69 +++++++++++++++----
+ tests/smoke/smoke.luau                        | 12 +++-
+ 3 files changed, 68 insertions(+), 14 deletions(-)
+
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+index 15911f6..10348f4 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/Board3D.luau
+@@ -569,6 +569,7 @@ function Board3D.create(ctx)
+ 			local color = ctx.isTarget(side, "Avatar", 0, nil) and theme.tgt or scene.palette[side]
+ 			for _, p in ipairs(scene.refs.vitalGem[side]) do p.Color = color end
+ 			scene.refs.setDeck(side, pl.deck)
++			scene.refs.setGrave(side, #pl.graveyard)
+ 		end
+ 
+ 		-- Disco de turno: brilla la mitad de quien tiene el derecho de ataque (view.attackerIdx)
+diff --git a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+index dce0a8d..603c37e 100644
+--- a/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
++++ b/src/StarterPlayerScripts/AEVUM/UI3D/BoardBuilder.luau
+@@ -52,7 +52,7 @@ function BoardBuilder.build(origin, quality, skinName)
+ 	local glow, glowBase = {}, {}
+ 	local anim = { river = nil, fireflies = {} }
+ 	local refs = {
+-		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, graveyards = {},
++		slots = {}, hit = {}, markers = {}, vitals = {}, vitalGem = {}, vitalHit = {}, decks = {}, deckTops = {}, graveyards = {},
+ 		barriers = {}, grooves = {}, discs = {}, disc = nil,
+ 	}
+ 	local palette = BoardBuilder.palette(skinName)
+@@ -291,21 +291,52 @@ function BoardBuilder.build(origin, quality, skinName)
+ 		vhit:SetAttribute("Side", side)
+ 		refs.vitalHit[side] = vhit
+ 
+-		-- Mazo = pedestal con cartas apiladas y aro de resplandor del color del bando
++		-- Muesca grabada (misma placa que las casillas): marco redondeado, el cementerio con doble marco,
++		-- y la línea del color del bando en el borde que mira a su dueño.
++		local function notch(name, pos, double)
++			local plate = part(name, Vector3.new(4.5, 6.1, 0.1), Vector3.new(pos.x, 0.05, pos.z), tileColor, SMOOTH, { rot = face })
++			local ng = surface(plate, Enum.NormalId.Front, 450, 610, 0.5)
++			local function outline(inset, thickness)
++				local f = frame(ng, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
++					Size = UDim2.fromOffset(450 - inset * 2, 610 - inset * 2), BackgroundTransparency = 1 })
++				local c = Instance.new("UICorner")
++				c.CornerRadius = UDim.new(0, 28)
++				c.Parent = f
++				local st = Instance.new("UIStroke")
++				st.Color = edgeColor
++				st.Thickness = thickness
++				st.Parent = f
++			end
++			outline(40, 8)
++			if double then outline(90, 3) end
++			bar(ng, 225, sgn == 1 and 574 or 36, 270, 10, 0, sideColor)
++			return plate
++		end
++
++		-- Mazo = muesca + pila de cartas que crece, con un reverso real encima
+ 		local d = Layout.deck(side)
+-		disc("MazoAro_" .. side, Layout.PEDESTAL_R * 2 + 0.4, 0.06, Vector3.new(d.x, 0.03, d.z), color, NEON,
+-			{ glow = true, transparency = 0.3 })
+-		disc("MazoPedestal_" .. side, Layout.PEDESTAL_R * 2, 0.5, Vector3.new(d.x, 0.25, d.z), frameColor, METAL, { shadow = true })
+-		local stack = part("MazoPila_" .. side, Vector3.new(3.9, 0.3, 5.5), Vector3.new(d.x, 0.65, d.z), shade(skin.frame, 0.35), SMOOTH,
++		notch("MuescaMazo_" .. side, d, false)
++		local stack = part("MazoPila_" .. side, Vector3.new(3.9, 0.3, 5.5), Vector3.new(d.x, 0.25, d.z), Color3.fromRGB(34, 28, 50), SMOOTH,
+ 			{ shadow = true })
++		local top = part("MazoReverso_" .. side, Vector3.new(3.9, 5.5, 0.02), Vector3.new(d.x, 0.41, d.z), Color3.fromRGB(34, 28, 50), SMOOTH,
++			{ rot = face })
++		local tg = surface(top, Enum.NormalId.Front, 390, 550, 0)
++		local broot = frame(tg, { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(34, 28, 50) })
++		local function diamond(size, col)
++			frame(broot, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(size, size),
++				Rotation = 45, BackgroundColor3 = col })
++		end
++		diamond(210, Color3.fromRGB(212, 175, 85))
++		diamond(176, Color3.fromRGB(20, 18, 34))
++		diamond(90, color)
+ 		refs.decks[side] = stack
++		refs.deckTops[side] = top
+ 
+-		-- Cementerio = pozo: borde alto, fondo hundido y remolino de neón
++		-- Cementerio = muesca con doble marco + pila de descartes que crece (apagada: sin cartas es solo la muesca)
+ 		local g = Layout.graveyard(side)
+-		disc("PozoBorde_" .. side, Layout.PEDESTAL_R * 2, 0.4, Vector3.new(g.x, 0.2, g.z), frameColor, METAL, { shadow = true })
+-		local pit = disc("PozoFondo_" .. side, Layout.PEDESTAL_R * 2 - 1, 0.3, Vector3.new(g.x, 0.15, g.z), Color3.fromRGB(24, 22, 30), SMOOTH)
+-		disc("PozoRemolino_" .. side, 2.4, 0.32, Vector3.new(g.x, 0.16, g.z), color, NEON, { glow = true, transparency = 0.35 })
+-		refs.graveyards[side] = pit
++		notch("MuescaCementerio_" .. side, g, true)
++		refs.graveyards[side] = part("CementerioPila_" .. side, Vector3.new(3.9, 0.1, 5.5), Vector3.new(g.x, 0.15, g.z),
++			shade(skin.frame, 0.55), SMOOTH, { shadow = true, transparency = 1 })
+ 
+ 		-- Barrera baja y translúcida detrás de la Banca (aloja las grietas del Parche 3) + surco hasta el cristal
+ 		local bz = Layout.barrierZ(side)
+@@ -331,13 +362,25 @@ function BoardBuilder.build(origin, quality, skinName)
+ 		refs.grooves[side] = { h, vtc }
+ 	end
+ 
+-	-- La pila de mazo crece con las cartas que quedan (40 cartas ≈ 1.5 studs)
++	-- Las pilas crecen con las cartas que quedan (mazo: 40 cartas ≈ 1.5 studs) y el reverso sube con ellas
+ 	function refs.setDeck(side, count)
+ 		local st = refs.decks[side]
+ 		local d = Layout.deck(side)
+ 		local h = math.clamp(0.1 + (count or 0) * 0.035, 0.1, 1.6)
+ 		st.Size = Vector3.new(3.9, h, 5.5)
+-		st.CFrame = CFrame.new(origin + Vector3.new(d.x, 0.5 + h / 2, d.z))
++		st.CFrame = CFrame.new(origin + Vector3.new(d.x, 0.1 + h / 2, d.z))
++		refs.deckTops[side].CFrame = CFrame.new(origin + Vector3.new(d.x, 0.1 + h + 0.011, d.z)) * face
++	end
++
++	-- Pila de descartes: invisible sin cartas; con cartas crece (cada una ≈ 0.08 studs, tope 1.2)
++	function refs.setGrave(side, count)
++		local pile = refs.graveyards[side]
++		local g = Layout.graveyard(side)
++		local n = count or 0
++		local h = math.clamp(0.1 + n * 0.08, 0.1, 1.2)
++		pile.Transparency = n > 0 and 0 or 1
++		pile.Size = Vector3.new(3.9, h, 5.5)
++		pile.CFrame = CFrame.new(origin + Vector3.new(g.x, 0.1 + h / 2, g.z))
+ 	end
+ 
+ 	-- ── Torres en las cuatro esquinas (una sola luz cada una) ──────────────
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+index 0cf3cbc..5277abd 100644
+--- a/tests/smoke/smoke.luau
++++ b/tests/smoke/smoke.luau
+@@ -78,7 +78,7 @@ do
+ 	expect(lo.parts < hi.parts and lo.lights == 0 and #lo.sc.anim.fireflies == 0 and lo.sc.anim.river == nil and #lo.sc.glow == 0,
+ 		"calidad baja: sin luces, luciérnagas, río animado ni brillos")
+ 	expect(hi.lights <= 6, "como mucho una luz por torre y por cristal")
+-	expect(#hi.sc.refs.discs == 19, "los redondos se crean con disc()")
++	expect(#hi.sc.refs.discs == 9, "los redondos se crean con disc()")
+ 	for _, p in ipairs(hi.sc.refs.discs) do
+ 		expect(p.Shape == S.Enum.PartType.Cylinder, "toda pieza redonda debe tener Shape = Cylinder: " .. p.Name)
+ 	end
+@@ -98,6 +98,16 @@ do
+ 	-- Mazo: la pila crece con las cartas que quedan
+ 	hi.sc.refs.setDeck("Self", 30)
+ 	expect(hi.sc.refs.decks.Self.Size.Y > 1, "la pila del mazo crece con las cartas")
++	hi.sc.refs.setGrave("Self", 0)
++	expect(hi.sc.refs.graveyards.Self.Transparency == 1, "cementerio vacío: solo la muesca")
++	hi.sc.refs.setGrave("Self", 6)
++	expect(hi.sc.refs.graveyards.Self.Transparency == 0 and hi.sc.refs.graveyards.Self.Size.Y > 0.5, "la pila de descartes aparece y crece")
++	for _, side in ipairs({ "Self", "Enemy" }) do
++		local names = {}
++		for _, d in ipairs(hi.sc.folder:GetDescendants()) do names[d.Name or ""] = true end
++		expect(names["MuescaMazo_" .. side] and names["MuescaCementerio_" .. side] and names["MazoReverso_" .. side], "muescas y reverso: " .. side)
++		expect(not names["MazoPedestal_" .. side] and not names["PozoBorde_" .. side], "sin pedestal ni pozo viejos: " .. side)
++	end
+ 	expect(hi.sc.refs.markers["Self:Bench:3"] ~= nil and hi.sc.refs.hit["Enemy:Combat:1"] ~= nil, "marcadores y zonas por casilla")
+ 	-- Disco de turno: círculo (Frame + UICorner) con degradado de corte duro; sin CanvasGroup (no recortó en Studio)
+ 	local dcol = {}
+-- 
+2.43.0
+

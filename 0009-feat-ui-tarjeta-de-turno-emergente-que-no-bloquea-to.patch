@@ -1,0 +1,297 @@
+From 3a90ed291e4d35ca122c7a87009c711fb8fd23dc Mon Sep 17 00:00:00 2001
+From: AEVUM dev <dev@aevum.local>
+Date: Sat, 21 Nov 2026 00:45:37 +0000
+Subject: [PATCH 09/11] feat(ui): tarjeta de turno emergente que no bloquea
+ toques (sustituye a Banner)
+
+---
+ .../AEVUM/AevumClient.client.luau             | 10 +--
+ src/StarterPlayerScripts/AEVUM/UI/Banner.luau | 53 ------------
+ .../AEVUM/UI/TurnCard.luau                    | 80 +++++++++++++++++++
+ tests/Turn.spec.luau                          | 19 +++++
+ tests/smoke/_stubs.luau                       |  2 +-
+ tests/smoke/run.py                            |  2 +-
+ tests/smoke/smoke.luau                        | 32 ++++++++
+ 7 files changed, 138 insertions(+), 60 deletions(-)
+ delete mode 100644 src/StarterPlayerScripts/AEVUM/UI/Banner.luau
+ create mode 100644 src/StarterPlayerScripts/AEVUM/UI/TurnCard.luau
+ create mode 100644 tests/Turn.spec.luau
+
+diff --git a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+index e46e0b9..46bb958 100644
+--- a/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
++++ b/src/StarterPlayerScripts/AEVUM/AevumClient.client.luau
+@@ -24,7 +24,7 @@ local LeftPanelUI = require(UI:WaitForChild("LeftPanel"))
+ local RightPanelUI = require(UI:WaitForChild("RightPanel"))
+ local LobbyUI = require(UI:WaitForChild("Lobby"))
+ local PauseUI = require(UI:WaitForChild("Pause"))
+-local BannerUI = require(UI:WaitForChild("Banner"))
++local TurnCardUI = require(UI:WaitForChild("TurnCard"))
+ local OverlayUI = require(UI:WaitForChild("Overlay"))
+ local Board3DUI = use3D and require(script.Parent:WaitForChild("UI3D"):WaitForChild("Board3D")) or nil
+ local new, clear = Widgets.new, Widgets.clear
+@@ -93,9 +93,9 @@ local pauseBtn = PauseUI.create(gui, C, Widgets, Remotes)
+ local shownTurn = nil
+ local lastEventId = 0
+ local board3dApi = nil -- API del tablero 3D (reset, isHandHidden); nil con el tablero 2D
+-local hideBanner, showBanner = BannerUI.create(gameFrame, new, TweenService)
++local hideTurnCard, showTurnCard = TurnCardUI.create(gameFrame, new, TweenService)
+ local overlay, overText, overReason = OverlayUI.create(gui, C, Widgets, Remotes, function()
+-	hideBanner()
++	hideTurnCard()
+ 	if board3dApi then board3dApi.reset() end
+ 	shownTurn = nil
+ 	lastEventId = 0
+@@ -437,8 +437,8 @@ Remotes.State.OnClientEvent:Connect(function(v)
+ 	gameFrame.Visible = true
+ 	pauseBtn.Visible = Remotes:GetAttribute("DebugPause") == true
+ 	render()
+-	if v.over then hideBanner()
+-	elseif v.turn ~= shownTurn then shownTurn = v.turn showBanner(v) end
++	if v.over then hideTurnCard()
++	elseif v.turn ~= shownTurn then shownTurn = v.turn showTurnCard(v) end
+ 	if v.over then
+ 		overlay.Visible = true
+ 		if v.winner == 0 then overText.Text = "EMPATE"
+diff --git a/src/StarterPlayerScripts/AEVUM/UI/Banner.luau b/src/StarterPlayerScripts/AEVUM/UI/Banner.luau
+deleted file mode 100644
+index c0eb91a..0000000
+--- a/src/StarterPlayerScripts/AEVUM/UI/Banner.luau
++++ /dev/null
+@@ -1,53 +0,0 @@
+-local Banner = {}
+-
+-function Banner.create(parent, new, tweenService)
+-	local token = 0
+-	local tweens = {}
+-	local frame = new("Frame", { Position = UDim2.new(0.2, 0, 0.06, 0), Size = UDim2.new(0.6, 0, 0.94, 0),
+-		BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, Visible = false, ZIndex = 15, Active = true }, parent)
+-	local title = new("TextLabel", { Position = UDim2.new(0, 0, 0.36, 0), Size = UDim2.new(1, 0, 0.18, 0),
+-		BackgroundTransparency = 1, TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBlack,
+-		TextScaled = true, Text = "", ZIndex = 16 }, frame)
+-	new("UITextSizeConstraint", { MaxTextSize = 72, MinTextSize = 16 }, title)
+-	local subtitle = new("TextLabel", { Position = UDim2.new(0, 0, 0.55, 0), Size = UDim2.new(1, 0, 0.06, 0),
+-		BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(220, 225, 240), Font = Enum.Font.Gotham,
+-		TextScaled = true, Text = "", ZIndex = 16 }, frame)
+-	new("UITextSizeConstraint", { MaxTextSize = 24, MinTextSize = 10 }, subtitle)
+-
+-	local function hide()
+-		token += 1
+-		for _, tween in ipairs(tweens) do tween:Cancel() end
+-		tweens = {}
+-		frame.Visible = false
+-	end
+-
+-	local function show(view)
+-		hide()
+-		local currentToken = token
+-		local mineTurn = view.attackerIdx == view.you
+-		frame.BackgroundColor3 = mineTurn and Color3.fromRGB(18, 48, 105) or Color3.fromRGB(95, 26, 32)
+-		title.Text = mineTurn and "Tu turno" or "Turno rival"
+-		if not view.attackOpen then subtitle.Text = ("Turno %d · Apertura: sin ataques ni evoluciones"):format(view.turn)
+-		elseif mineTurn then subtitle.Text = ("Turno %d · Atacas este turno"):format(view.turn)
+-		else subtitle.Text = ("Turno %d · El rival ataca este turno"):format(view.turn) end
+-		frame.BackgroundTransparency = 0.05
+-		title.TextTransparency = 0
+-		subtitle.TextTransparency = 0.15
+-		frame.Visible = true
+-		task.delay(1.1, function()
+-			if currentToken ~= token then return end
+-			local info = TweenInfo.new(0.35)
+-			tweens = {
+-				tweenService:Create(frame, info, { BackgroundTransparency = 1 }),
+-				tweenService:Create(title, info, { TextTransparency = 1 }),
+-				tweenService:Create(subtitle, info, { TextTransparency = 1 }),
+-			}
+-			for _, tween in ipairs(tweens) do tween:Play() end
+-			task.delay(0.35, function() if currentToken == token then frame.Visible = false end end)
+-		end)
+-	end
+-
+-	return hide, show
+-end
+-
+-return Banner
+diff --git a/src/StarterPlayerScripts/AEVUM/UI/TurnCard.luau b/src/StarterPlayerScripts/AEVUM/UI/TurnCard.luau
+new file mode 100644
+index 0000000..96c7118
+--- /dev/null
++++ b/src/StarterPlayerScripts/AEVUM/UI/TurnCard.luau
+@@ -0,0 +1,80 @@
++--!nonstrict
++-- Tarjeta de turno emergente (sustituye a UI/Banner).
++-- Entra deslizándose desde el borde derecho, se queda ~2 s y se va. NO bloquea toques (Active = false):
++-- el Banner anterior cubría casi toda la pantalla con Active = true y se tragaba los toques.
++local TurnCard = {}
++
++TurnCard.REST_X = 0.825 -- borde derecho de la tarjeta en reposo: justo a la izquierda de la columna derecha (empieza en 0.835)
++TurnCard.TOP_Y = 0.09 -- parte alta de la zona del tablero
++TurnCard.SLIDE = 0.3 -- segundos de entrada y de salida
++TurnCard.TOTAL = 2.0 -- segundos desde que aparece hasta que desaparece
++
++-- Lógica pura (se prueba sin Roblox). attackerIdx == you → es mi turno; attackOpen → ya se puede atacar.
++function TurnCard.texts(view)
++	local mine = view.attackerIdx == view.you
++	local title = mine and "Tu turno" or "Turno enemigo"
++	local sub = nil
++	if view.attackOpen then sub = mine and "¡Al ataque!" or "¡A defender!" end
++	return { mine = mine, title = title, sub = sub, full = sub and (title .. " " .. sub) or title }
++end
++
++function TurnCard.create(parent, new, tweenService)
++	local token = 0
++	local tweens = {}
++	local offX = 1.4 -- fuera de pantalla por la derecha
++	local frame = new("Frame", { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(offX, 0, TurnCard.TOP_Y, 0),
++		Size = UDim2.new(0.2, 0, 0.1, 0), BackgroundColor3 = Color3.fromRGB(18, 48, 105), BackgroundTransparency = 0.08,
++		Visible = false, ZIndex = 15, Active = false }, parent)
++	new("UICorner", { CornerRadius = UDim.new(0, 12) }, frame)
++	new("UISizeConstraint", { MinSize = Vector2.new(150, 44), MaxSize = Vector2.new(340, 96) }, frame)
++	local stroke = new("UIStroke", { Color = Color3.fromRGB(110, 170, 255), Thickness = 2 }, frame)
++	local title = new("TextLabel", { Position = UDim2.new(0.06, 0, 0, 0), Size = UDim2.new(0.88, 0, 1, 0),
++		BackgroundTransparency = 1, TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamBlack,
++		TextScaled = true, Text = "", ZIndex = 16, Active = false }, frame)
++	new("UITextSizeConstraint", { MaxTextSize = 30, MinTextSize = 10 }, title)
++	local subtitle = new("TextLabel", { Position = UDim2.new(0.06, 0, 0.55, 0), Size = UDim2.new(0.88, 0, 0.36, 0),
++		BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 232, 160), Font = Enum.Font.GothamBold,
++		TextScaled = true, Text = "", ZIndex = 16, Active = false }, frame)
++	new("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 8 }, subtitle)
++
++	local function hide()
++		token += 1
++		for _, tween in ipairs(tweens) do tween:Cancel() end
++		tweens = {}
++		frame.Visible = false
++	end
++
++	local function slideTo(x)
++		local tween = tweenService:Create(frame, TweenInfo.new(TurnCard.SLIDE, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
++			{ Position = UDim2.new(x, 0, TurnCard.TOP_Y, 0) })
++		tweens[#tweens + 1] = tween
++		tween:Play()
++	end
++
++	local function show(view)
++		hide()
++		local current = token
++		local t = TurnCard.texts(view)
++		-- azul = tú, rojo coral = rival
++		frame.BackgroundColor3 = t.mine and Color3.fromRGB(18, 48, 105) or Color3.fromRGB(122, 34, 44)
++		stroke.Color = t.mine and Color3.fromRGB(110, 170, 255) or Color3.fromRGB(255, 125, 112)
++		title.Text = t.title
++		subtitle.Text = t.sub or ""
++		subtitle.Visible = t.sub ~= nil
++		title.Size = t.sub and UDim2.new(0.88, 0, 0.5, 0) or UDim2.new(0.88, 0, 1, 0)
++		frame.Position = UDim2.new(offX, 0, TurnCard.TOP_Y, 0)
++		frame.Visible = true
++		slideTo(TurnCard.REST_X)
++		task.delay(TurnCard.TOTAL - TurnCard.SLIDE, function()
++			if current ~= token then return end
++			slideTo(offX)
++		end)
++		task.delay(TurnCard.TOTAL, function()
++			if current == token then frame.Visible = false end
++		end)
++	end
++
++	return hide, show, frame
++end
++
++return TurnCard
+diff --git a/tests/Turn.spec.luau b/tests/Turn.spec.luau
+new file mode 100644
+index 0000000..2dc2642
+--- /dev/null
++++ b/tests/Turn.spec.luau
+@@ -0,0 +1,19 @@
++-- Textos de la tarjeta de turno (lógica pura).
++local TurnCard = require("../src/StarterPlayerScripts/AEVUM/UI/TurnCard")
++
++local function expect(c, m) if not c then error(m, 2) end end
++
++local function full(attackerIdx, attackOpen)
++	return TurnCard.texts({ attackerIdx = attackerIdx, you = 1, attackOpen = attackOpen }).full
++end
++
++expect(full(1, false) == "Tu turno", "mío, sin ataque: " .. full(1, false))
++expect(full(1, true) == "Tu turno ¡Al ataque!", "mío, con ataque: " .. full(1, true))
++expect(full(2, false) == "Turno enemigo", "rival, sin ataque: " .. full(2, false))
++expect(full(2, true) == "Turno enemigo ¡A defender!", "rival, con ataque: " .. full(2, true))
++expect(TurnCard.texts({ attackerIdx = 1, you = 1, attackOpen = true }).mine == true, "mine = true en mi turno")
++expect(TurnCard.texts({ attackerIdx = 2, you = 1, attackOpen = false }).mine == false, "mine = false en el del rival")
++expect(TurnCard.TOTAL >= 1.5 and TurnCard.TOTAL <= 2.5, "dura ~2 s")
++expect(TurnCard.REST_X < 0.835, "queda a la izquierda de la columna derecha")
++
++print("Turn.spec OK")
+diff --git a/tests/smoke/_stubs.luau b/tests/smoke/_stubs.luau
+index 5fc1a6a..448b547 100644
+--- a/tests/smoke/_stubs.luau
++++ b/tests/smoke/_stubs.luau
+@@ -30,7 +30,7 @@ local Enum = setmetatable({}, { __index = function(_, a) return setmetatable({},
+ local RaycastParams = { new = function() return {} end }
+ 
+ local deferred = {}
+-local task = { defer = function(f) deferred[#deferred + 1] = f end, wait = function() end }
++local task = { defer = function(f) deferred[#deferred + 1] = f end, wait = function() end, delay = function() end }
+ local function flushDeferred()
+ 	local d = deferred
+ 	deferred = {}
+diff --git a/tests/smoke/run.py b/tests/smoke/run.py
+index 5af3871..8d13eae 100644
+--- a/tests/smoke/run.py
++++ b/tests/smoke/run.py
+@@ -28,7 +28,7 @@ try:
+     for m in mods:
+         src = open(os.path.join(ui3d, m + ".luau"), encoding="utf-8").read()
+         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
+-    for m in ("CardDetail",):
++    for m in ("CardDetail", "TurnCard"):
+         src = open(os.path.join(ui2d, m + ".luau"), encoding="utf-8").read()
+         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
+     shutil.copy(os.path.join(root, "src", "ReplicatedStorage", "AEVUM", "CardDatabase.luau"), tmp)
+diff --git a/tests/smoke/smoke.luau b/tests/smoke/smoke.luau
+index 5277abd..a8b32cb 100644
+--- a/tests/smoke/smoke.luau
++++ b/tests/smoke/smoke.luau
+@@ -56,6 +56,38 @@ do
+ 	expect(CardDetail.draw(ctx, parent, { view = view }, 50) == nil, "detalle: sin carta elegida no dibuja nada")
+ end
+ 
++-- 0b2) tarjeta de turno: no bloquea toques, colores por bando, textos según ataque, se oculta
++do
++	local TurnCard = require("./TurnCard")
++	local parent = S.Instance.new("Frame")
++	local function new(class, props, p)
++		local o = S.Instance.new(class)
++		for k, v in pairs(props) do o[k] = v end
++		o.Parent = p
++		return o
++	end
++	local hideCard, showCard, card = TurnCard.create(parent, new, S.game:GetService("TweenService"))
++	local function texts()
++		local out = {}
++		for _, d in ipairs(card:GetDescendants()) do
++			if d.Text ~= nil then out[#out + 1] = d end
++		end
++		return out
++	end
++	expect(card.Active == false, "la tarjeta de turno no se traga los toques")
++	for _, d in ipairs(texts()) do expect(d.Active == false, "los textos de la tarjeta tampoco") end
++	showCard({ attackerIdx = 1, you = 1, attackOpen = true })
++	expect(card.Visible == true, "la tarjeta aparece")
++	local t = texts()
++	expect(t[1].Text == "Tu turno" and t[2].Text == "¡Al ataque!" and t[2].Visible == true, "mi turno con ataque")
++	local mineColor = card.BackgroundColor3
++	showCard({ attackerIdx = 2, you = 1, attackOpen = false })
++	expect(texts()[1].Text == "Turno enemigo" and texts()[2].Visible == false, "turno enemigo sin ataque: sin subtítulo")
++	expect(card.BackgroundColor3 ~= mineColor, "el rival tiene otro color que tú")
++	hideCard()
++	expect(card.Visible == false, "al terminar la partida se oculta")
++end
++
+ -- 0c) arena: presupuesto de partes, redondos con Shape = Cylinder, zonas táctiles justas, calidad baja más ligera
+ do
+ 	local BoardBuilder = require("./BoardBuilder")
+-- 
+2.43.0
+
