@@ -28,7 +28,7 @@ try:
     for m in mods:
         src = open(os.path.join(ui3d, m + ".luau"), encoding="utf-8").read()
         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
-    for m in ("CardDetail", "TurnCard"):
+    for m in ("CardDetail", "TurnCard", "Timer"):
         src = open(os.path.join(ui2d, m + ".luau"), encoding="utf-8").read()
         open(os.path.join(tmp, m + ".luau"), "w", encoding="utf-8").write(src.replace("--!nonstrict\n", "--!nonstrict\n" + inj, 1))
     shutil.copy(os.path.join(root, "src", "ReplicatedStorage", "AEVUM", "CardDatabase.luau"), tmp)

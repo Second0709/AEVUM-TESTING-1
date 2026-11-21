@@ -88,6 +88,43 @@ do
 	expect(card.Visible == false, "al terminar la partida se oculta")
 end
 
+-- 0b3) cronómetro: pequeño, no bloquea toques; normal / atenuado / rojo pulsando / pausa / oculto
+do
+	local Timer = require("./Timer")
+	local parent = S.Instance.new("Frame")
+	local function new(class, props, p)
+		local o = S.Instance.new(class)
+		for k, v in pairs(props) do o[k] = v end
+		o.Parent = p
+		return o
+	end
+	local update = Timer.create(parent, new)
+	local root = parent:GetChildren()[1]
+	local label, scale, bars = nil, nil, {}
+	for _, d in ipairs(root:GetDescendants()) do
+		if d.Text ~= nil then label = d end
+		if d.ClassName == "UIScale" then scale = d end
+		if d.ClassName == "Frame" then bars[#bars + 1] = d end
+	end
+	expect(root.Active == false and label.Active == false, "el cronómetro no se traga los toques")
+	update({ mode = "hidden" }, 0)
+	expect(root.Visible == false, "oculto al terminar")
+	update({ mode = "normal", seconds = 27 }, 0)
+	expect(root.Visible and label.Text == "27" and label.TextTransparency == 0 and scale.Scale == 1, "normal")
+	local normalColor = label.TextColor3
+	update({ mode = "dim", seconds = 27 }, 0)
+	expect(label.TextTransparency > 0.3 and label.Text == "27", "rival: sigue contando, atenuado")
+	update({ mode = "urgent", seconds = 4 }, 0.16)
+	expect(label.TextColor3 ~= normalColor and scale.Scale > 1, "últimos 5 s: rojo y pulsando")
+	local s1 = scale.Scale
+	update({ mode = "urgent", seconds = 4 }, 0.47)
+	expect(scale.Scale ~= s1, "el pulso cambia con el tiempo")
+	update({ mode = "paused" }, 0)
+	expect(label.Visible == false and #bars == 2 and bars[1].Visible and bars[2].Visible, "pausa: dos barras, sin número")
+	update({ mode = "normal", seconds = 9 }, 0)
+	expect(label.Visible == true and not bars[1].Visible, "al reanudar vuelve el número")
+end
+
 -- 0c) arena: presupuesto de partes, redondos con Shape = Cylinder, zonas táctiles justas, calidad baja más ligera
 do
 	local BoardBuilder = require("./BoardBuilder")

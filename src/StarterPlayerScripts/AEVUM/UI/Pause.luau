@@ -3,7 +3,7 @@ local Pause = {}
 function Pause.create(parent, theme, widgets, remotes)
 	local button = widgets.new("TextButton", {
 		Size = UDim2.new(0, 140, 0, 40),
-		Position = UDim2.new(1, -150, 0, 10),
+		Position = UDim2.new(1, -270, 0, 10), -- a la izquierda del cronómetro (arriba a la derecha)
 		BackgroundColor3 = Color3.fromRGB(200, 60, 60),
 		TextColor3 = theme.text,
 		Font = Enum.Font.GothamBold,

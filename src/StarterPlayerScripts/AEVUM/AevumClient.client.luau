@@ -25,6 +25,7 @@ local RightPanelUI = require(UI:WaitForChild("RightPanel"))
 local LobbyUI = require(UI:WaitForChild("Lobby"))
 local PauseUI = require(UI:WaitForChild("Pause"))
 local TurnCardUI = require(UI:WaitForChild("TurnCard"))
+local TimerUI = require(UI:WaitForChild("Timer"))
 local OverlayUI = require(UI:WaitForChild("Overlay"))
 local Board3DUI = use3D and require(script.Parent:WaitForChild("UI3D"):WaitForChild("Board3D")) or nil
 local new, clear = Widgets.new, Widgets.clear
@@ -48,11 +49,8 @@ for _ = 1, 70 do
 		BackgroundColor3 = C.text, BackgroundTransparency = stars:NextNumber(0.1, 0.7), BorderSizePixel = 0 }, starsLayer)
 end
 
-local topBar = new("TextLabel", { Position = UDim2.new(0, 0, 0, 0), Size = UDim2.new(1, 0, 0.065, 0),
-	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12, TextColor3 = Color3.fromRGB(77, 225, 255),
-	Font = Enum.Font.GothamBold, TextScaled = true, Text = "", ZIndex = 2 }, gameFrame)
-new("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 8 }, topBar)
-new("UIStroke", { Color = Color3.fromRGB(42, 53, 104), Thickness = 1 }, topBar)
+-- Cronómetro pequeño arriba a la derecha (sustituye a la barra superior; el número de turno sigue en el registro)
+local updateTimer = TimerUI.create(gameFrame, new)
 
 local left = new("Frame", { Position = UDim2.new(0.012, 0, 0.08, 0), Size = UDim2.new(0.13, 0, 0.91, 0),
 	BackgroundColor3 = Color3.fromRGB(13, 18, 48), BackgroundTransparency = 0.12 }, gameFrame)
@@ -464,15 +462,6 @@ RunService.Heartbeat:Connect(function()
 		pauseBtn.Text = view.paused and "REANUDAR" or "PAUSAR"
 		pauseBtn.BackgroundColor3 = view.paused and Color3.fromRGB(60, 160, 60) or Color3.fromRGB(200, 60, 60)
 	end
-	if view.over then topBar.Text = "Partida terminada" return end
-	if view.paused then
-		topBar.Text = ("PAUSADO · Turno %d · El reloj está detenido"):format(view.turn)
-		return
-	end
-	local w = view.waiting
-	local left = math.max(0, math.ceil(w.timeLeft - (os.clock() - recvAt)))
-	local who = (w.player == view.you) and "TU PRIORIDAD" or "PRIORIDAD DEL RIVAL"
-	local owner = view.attackerIdx == view.you and "TU TURNO" or "TURNO RIVAL"
-	local phase = view.attackOpen and "" or " · Apertura: sin ataque"
-	topBar.Text = ("Turno %d · %s%s · %s · %ds"):format(view.turn, owner, phase, who, left)
+	local now = os.clock()
+	updateTimer(TimerUI.state(view, now, recvAt), now)
 end)
