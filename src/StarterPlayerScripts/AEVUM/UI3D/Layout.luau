@@ -121,8 +121,9 @@ function Layout.halfExtents()
 end
 
 -- Región de pantalla (fracciones 0..1) que dejan libre los paneles 2D.
--- Coincide con el diseño actual: tablero entre el panel izquierdo y el derecho, sobre la mano.
-Layout.SCREEN_REGION = { x0 = 0.15, x1 = 0.83, y0 = 0.08, y1 = 0.76 }
+-- Tablero entre el panel izquierdo y el derecho, sobre la mano. Sin barra superior (y0 = 0.04: un pequeño margen
+-- bajo el borde de la pantalla; los botones de Roblox quedan a la izquierda de x0).
+Layout.SCREEN_REGION = { x0 = 0.15, x1 = 0.83, y0 = 0.04, y1 = 0.76 }
 
 -- Encuadre de cámara para que la mesa quepa en `region` de la pantalla.
 -- aspect = ancho/alto de la pantalla · vfovDeg = FOV vertical · pitchDeg = inclinación bajo el horizonte.

@@ -74,6 +74,9 @@ local near46 = Layout.cameraFit(16 / 9, 45, 46)
 expect(near46.distance < Layout.cameraFit(16 / 9, 45, 58).distance, "pitch 46° acerca la cámara")
 local px = Layout.cardScreenWidth(16 / 9, 45, 46, 1080)
 expect(px >= 80, "una carta debe medir >= 80 px de ancho a 1080p (mide " .. string.format("%.1f", px) .. ")")
+-- Sin barra superior la región sube y la carta crece (antes 84 px con y0 = 0.08)
+expect(Layout.SCREEN_REGION.y0 <= 0.05, "la región ya no deja sitio a la barra superior")
+expect(px >= 86, "sin barra superior la carta debe medir >= 86 px a 1080p (mide " .. string.format("%.1f", px) .. ")")
 -- La mesa no puede quedar recortada en vertical (móvil): la distancia debe seguir creciendo
 expect(Layout.cameraFit(9 / 16, 45, 46).distance > Layout.cameraFit(4 / 3, 45, 46).distance, "en vertical la cámara se aleja más")
 
