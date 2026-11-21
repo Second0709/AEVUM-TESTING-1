@@ -56,6 +56,38 @@ do
 	expect(CardDetail.draw(ctx, parent, { view = view }, 50) == nil, "detalle: sin carta elegida no dibuja nada")
 end
 
+-- 0b2) tarjeta de turno: no bloquea toques, colores por bando, textos según ataque, se oculta
+do
+	local TurnCard = require("./TurnCard")
+	local parent = S.Instance.new("Frame")
+	local function new(class, props, p)
+		local o = S.Instance.new(class)
+		for k, v in pairs(props) do o[k] = v end
+		o.Parent = p
+		return o
+	end
+	local hideCard, showCard, card = TurnCard.create(parent, new, S.game:GetService("TweenService"))
+	local function texts()
+		local out = {}
+		for _, d in ipairs(card:GetDescendants()) do
+			if d.Text ~= nil then out[#out + 1] = d end
+		end
+		return out
+	end
+	expect(card.Active == false, "la tarjeta de turno no se traga los toques")
+	for _, d in ipairs(texts()) do expect(d.Active == false, "los textos de la tarjeta tampoco") end
+	showCard({ attackerIdx = 1, you = 1, attackOpen = true })
+	expect(card.Visible == true, "la tarjeta aparece")
+	local t = texts()
+	expect(t[1].Text == "Tu turno" and t[2].Text == "¡Al ataque!" and t[2].Visible == true, "mi turno con ataque")
+	local mineColor = card.BackgroundColor3
+	showCard({ attackerIdx = 2, you = 1, attackOpen = false })
+	expect(texts()[1].Text == "Turno enemigo" and texts()[2].Visible == false, "turno enemigo sin ataque: sin subtítulo")
+	expect(card.BackgroundColor3 ~= mineColor, "el rival tiene otro color que tú")
+	hideCard()
+	expect(card.Visible == false, "al terminar la partida se oculta")
+end
+
 -- 0c) arena: presupuesto de partes, redondos con Shape = Cylinder, zonas táctiles justas, calidad baja más ligera
 do
 	local BoardBuilder = require("./BoardBuilder")

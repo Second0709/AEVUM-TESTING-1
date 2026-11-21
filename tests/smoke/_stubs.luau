@@ -30,7 +30,7 @@ local Enum = setmetatable({}, { __index = function(_, a) return setmetatable({},
 local RaycastParams = { new = function() return {} end }
 
 local deferred = {}
-local task = { defer = function(f) deferred[#deferred + 1] = f end, wait = function() end }
+local task = { defer = function(f) deferred[#deferred + 1] = f end, wait = function() end, delay = function() end }
 local function flushDeferred()
 	local d = deferred
 	deferred = {}

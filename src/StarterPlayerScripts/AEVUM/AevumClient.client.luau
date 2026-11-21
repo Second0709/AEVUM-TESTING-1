@@ -24,7 +24,7 @@ local LeftPanelUI = require(UI:WaitForChild("LeftPanel"))
 local RightPanelUI = require(UI:WaitForChild("RightPanel"))
 local LobbyUI = require(UI:WaitForChild("Lobby"))
 local PauseUI = require(UI:WaitForChild("Pause"))
-local BannerUI = require(UI:WaitForChild("Banner"))
+local TurnCardUI = require(UI:WaitForChild("TurnCard"))
 local OverlayUI = require(UI:WaitForChild("Overlay"))
 local Board3DUI = use3D and require(script.Parent:WaitForChild("UI3D"):WaitForChild("Board3D")) or nil
 local new, clear = Widgets.new, Widgets.clear
@@ -93,9 +93,9 @@ local pauseBtn = PauseUI.create(gui, C, Widgets, Remotes)
 local shownTurn = nil
 local lastEventId = 0
 local board3dApi = nil -- API del tablero 3D (reset, isHandHidden); nil con el tablero 2D
-local hideBanner, showBanner = BannerUI.create(gameFrame, new, TweenService)
+local hideTurnCard, showTurnCard = TurnCardUI.create(gameFrame, new, TweenService)
 local overlay, overText, overReason = OverlayUI.create(gui, C, Widgets, Remotes, function()
-	hideBanner()
+	hideTurnCard()
 	if board3dApi then board3dApi.reset() end
 	shownTurn = nil
 	lastEventId = 0
@@ -437,8 +437,8 @@ Remotes.State.OnClientEvent:Connect(function(v)
 	gameFrame.Visible = true
 	pauseBtn.Visible = Remotes:GetAttribute("DebugPause") == true
 	render()
-	if v.over then hideBanner()
-	elseif v.turn ~= shownTurn then shownTurn = v.turn showBanner(v) end
+	if v.over then hideTurnCard()
+	elseif v.turn ~= shownTurn then shownTurn = v.turn showTurnCard(v) end
 	if v.over then
 		overlay.Visible = true
 		if v.winner == 0 then overText.Text = "EMPATE"
